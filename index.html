@@ -1040,6 +1040,7 @@ const CalorieTracker = ({ onSignOut, userEmail }) => {
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 200,
+          thinking: { type: 'disabled' },
           messages: [
             {
               role: 'user',
@@ -1169,6 +1170,7 @@ Use everyday language, no BMI/cal/protein jargon. Be honest but supportive. Each
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 200,
+          thinking: { type: 'disabled' },
           messages: [
             {
               role: 'user',
@@ -1267,6 +1269,7 @@ ${goalLabel ? `- Goal: ${goalLabel}` : ''}`;
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 200,
+          thinking: { type: 'disabled' },
           system: systemPrompt,
           messages: updatedMessages.map((m) => ({ role: m.role, content: m.text })),
         }),
@@ -1416,6 +1419,7 @@ ${goalLabel ? `- Goal: ${goalLabel}` : ''}`;
             body: JSON.stringify({
               model: 'claude-sonnet-5',
               max_tokens: 150,
+              thinking: { type: 'disabled' },
               messages: [
                 {
                   role: 'user',
@@ -1479,6 +1483,7 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
           body: JSON.stringify({
             model: 'claude-sonnet-5',
             max_tokens: 150,
+            thinking: { type: 'disabled' },
             messages: [
               {
                 role: 'user',
@@ -1543,6 +1548,7 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 150,
+          thinking: { type: 'disabled' },
           messages: [
             {
               role: 'user',
@@ -1623,6 +1629,7 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 120,
+          thinking: { type: 'disabled' },
           messages: [
             {
               role: 'user',
@@ -1664,6 +1671,7 @@ NEXT: <one short clause on what to focus on next>`,
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 180,
+          thinking: { type: 'disabled' },
           messages: [
             {
               role: 'user',
@@ -1707,6 +1715,7 @@ WHY: <one short sentence on why this fits>`,
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 180,
+          thinking: { type: 'disabled' },
           messages: [
             {
               role: 'user',
@@ -1745,6 +1754,7 @@ WHY: <one short sentence on why this fits>`,
         body: JSON.stringify({
           model: 'claude-sonnet-5',
           max_tokens: 200,
+          thinking: { type: 'disabled' },
           messages: [
             {
               role: 'user',
