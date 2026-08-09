@@ -1446,10 +1446,10 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
           const text = data.content[0]?.text || '';
 
           const descriptionMatch = text.match(/description:\s*(.*)/i);
-          const calorieMatch = text.match(/calories:(\d+)/);
-          const proteinMatch = text.match(/protein:(\d+)g/);
-          const carbsMatch = text.match(/carbs:(\d+)g/);
-          const fatMatch = text.match(/fat:(\d+)g/);
+          const calorieMatch = text.match(/calories:\s*(\d+)/i);
+          const proteinMatch = text.match(/protein:\s*(\d+)\s*g/i);
+          const carbsMatch = text.match(/carbs:\s*(\d+)\s*g/i);
+          const fatMatch = text.match(/fat:\s*(\d+)\s*g/i);
           const goodMatch = text.match(/good:\s*(.*)/i);
           const badMatch = text.match(/bad:\s*(.*)/i);
 
@@ -1494,10 +1494,10 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
         const data = await response.json();
         const text = data.content[0]?.text || '';
 
-        const calorieMatch = text.match(/calories:(\d+)/);
-        const proteinMatch = text.match(/protein:(\d+)g/);
-        const carbsMatch = text.match(/carbs:(\d+)g/);
-        const fatMatch = text.match(/fat:(\d+)g/);
+        const calorieMatch = text.match(/calories:\s*(\d+)/i);
+        const proteinMatch = text.match(/protein:\s*(\d+)\s*g/i);
+        const carbsMatch = text.match(/carbs:\s*(\d+)\s*g/i);
+        const fatMatch = text.match(/fat:\s*(\d+)\s*g/i);
         const goodMatch = text.match(/good:\s*(.*)/i);
         const badMatch = text.match(/bad:\s*(.*)/i);
 
@@ -1558,10 +1558,10 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
       const data = await response.json();
       const text = data.content[0]?.text || '';
 
-      const calorieMatch = text.match(/calories:(\d+)/);
-      const proteinMatch = text.match(/protein:(\d+)g/);
-      const carbsMatch = text.match(/carbs:(\d+)g/);
-      const fatMatch = text.match(/fat:(\d+)g/);
+      const calorieMatch = text.match(/calories:\s*(\d+)/i);
+      const proteinMatch = text.match(/protein:\s*(\d+)\s*g/i);
+      const carbsMatch = text.match(/carbs:\s*(\d+)\s*g/i);
+      const fatMatch = text.match(/fat:\s*(\d+)\s*g/i);
       const goodMatch = text.match(/good:\s*(.*)/i);
       const badMatch = text.match(/bad:\s*(.*)/i);
 
