@@ -7,16 +7,15 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js"></script>
-  <script src="https://unpkg.com/recharts@2.8.0/dist/Recharts.js"></script>
   
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #root { width: 100%; height: 100%; }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
       background: #f5f5f7;
+      overflow: hidden;
     }
-    #root { width: 100%; min-height: 100vh; }
   </style>
 </head>
 <body>
@@ -25,150 +24,65 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // ============================================
-    // FIREBASE REST API
-    // ============================================
     let firebaseUser = null;
     let firebaseIdToken = null;
     let projectId = null;
 
-    window.firebaseAPI = {
+    const firebaseAPI = {
       async signIn(apiKey) {
-        try {
-          const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ returnSecureToken: true }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error?.message || 'Sign in failed');
-          firebaseUser = { uid: data.localId };
-          firebaseIdToken = data.idToken;
-          return firebaseUser;
-        } catch (e) {
-          console.error('Firebase sign in error:', e);
-          throw e;
-        }
+        const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ returnSecureToken: true }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || 'Sign in failed');
+        firebaseUser = { uid: data.localId };
+        firebaseIdToken = data.idToken;
+        return firebaseUser;
       },
 
       async set(path, value) {
-        if (!firebaseIdToken) throw new Error('Not authenticated');
-        try {
-          const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
-          const res = await fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(value),
-          });
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Save failed');
-          }
-          return await res.json();
-        } catch (e) {
-          console.error('Firebase set error:', e);
-          throw e;
-        }
+        const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
+        const res = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(value),
+        });
+        if (!res.ok) throw new Error('Save failed');
+        return res.json();
       },
 
       async get(path) {
-        if (!firebaseIdToken) throw new Error('Not authenticated');
-        try {
-          const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
-          const res = await fetch(url);
-          if (res.status === 404) return null;
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Load failed');
-          }
-          return await res.json();
-        } catch (e) {
-          console.error('Firebase get error:', e);
-          throw e;
-        }
-      },
-
-      async delete(path) {
-        if (!firebaseIdToken) throw new Error('Not authenticated');
-        try {
-          const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
-          const res = await fetch(url, { method: 'DELETE' });
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Delete failed');
-          }
-          return await res.json();
-        } catch (e) {
-          console.error('Firebase delete error:', e);
-          throw e;
-        }
-      },
-
-      async list(prefix) {
-        if (!firebaseIdToken) throw new Error('Not authenticated');
-        try {
-          const url = `https://${projectId}-default-rtdb.firebaseio.com/users/${firebaseUser.uid}.json?auth=${firebaseIdToken}`;
-          const res = await fetch(url);
-          if (res.status === 404) return { keys: [] };
-          if (!res.ok) throw new Error('List failed');
-          const data = await res.json();
-          const keys = Object.keys(data || {}).filter(k => k.startsWith(prefix));
-          return { keys };
-        } catch (e) {
-          console.error('Firebase list error:', e);
-          return { keys: [] };
-        }
+        const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
+        const res = await fetch(url);
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error('Load failed');
+        return res.json();
       },
     };
 
-    // Global storage adapter
-    window.storage = {
-      async set(key, value, shared = false) {
-        const path = `users/${firebaseUser.uid}/${key}`;
-        return window.firebaseAPI.set(path, JSON.parse(value));
-      },
-      async get(key, shared = false) {
-        const path = `users/${firebaseUser.uid}/${key}`;
-        const data = await window.firebaseAPI.get(path);
-        if (data) return { key, value: JSON.stringify(data) };
-        return null;
-      },
-      async delete(key, shared = false) {
-        const path = `users/${firebaseUser.uid}/${key}`;
-        return window.firebaseAPI.delete(path);
-      },
-      async list(prefix, shared = false) {
-        return window.firebaseAPI.list(prefix);
-      },
-    };
-
-    // ============================================
-    // LOGIN SCREEN
-    // ============================================
     const LoginScreen = ({ onLoggedIn }) => {
-      const [creds, setCreds] = useState({
-        apiKey: localStorage.getItem('fb_apiKey') || '',
-        projectId: localStorage.getItem('fb_projectId') || '',
-      });
+      const [apiKey, setApiKey] = useState(localStorage.getItem('fb_apiKey') || '');
+      const [projId, setProjId] = useState(localStorage.getItem('fb_projectId') || '');
       const [status, setStatus] = useState('');
       const [connecting, setConnecting] = useState(false);
 
       const handleConnect = async () => {
-        if (!creds.projectId || !creds.apiKey) {
+        if (!projId || !apiKey) {
           setStatus('❌ Both fields required');
           return;
         }
         setConnecting(true);
-        setStatus('Connecting to Firebase...');
+        setStatus('Connecting...');
         try {
-          localStorage.setItem('fb_apiKey', creds.apiKey);
-          localStorage.setItem('fb_projectId', creds.projectId);
-          projectId = creds.projectId;
-          const user = await window.firebaseAPI.signIn(creds.apiKey);
+          localStorage.setItem('fb_apiKey', apiKey);
+          localStorage.setItem('fb_projectId', projId);
+          projectId = projId;
+          const user = await firebaseAPI.signIn(apiKey);
           setStatus('✅ Connected!');
           setTimeout(() => onLoggedIn(user), 500);
         } catch (e) {
-          console.error('Connection error:', e);
           setStatus(`❌ ${e.message}`);
           setConnecting(false);
         }
@@ -176,684 +90,249 @@
 
       return (
         <div style={{ minHeight: '100vh', background: '#f5f5f7', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ background: '#ffffff', borderRadius: '16px', padding: '2rem', maxWidth: '500px', width: '100%', boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
-            <h1 style={{ marginBottom: '0.5rem', fontSize: '2rem', fontWeight: '700', color: '#1d1d1d' }}>📱 Body Tracker</h1>
-            <p style={{ color: '#86868b', marginBottom: '2rem', fontSize: '0.9rem' }}>Firebase Authentication</p>
+          <div style={{ background: '#fff', borderRadius: '16px', padding: '2rem', maxWidth: '400px', width: '100%', boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
+            <h1 style={{ fontSize: '1.8rem', fontWeight: '700', marginBottom: '0.5rem', color: '#1d1d1d' }}>📱 Body Tracker</h1>
+            <p style={{ color: '#86868b', marginBottom: '2rem', fontSize: '0.9rem' }}>Firebase Setup</p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.4rem', color: '#1d1d1d' }}>API Key</label>
-                <input 
-                  type="text" 
-                  value={creds.apiKey} 
-                  onChange={(e) => setCreds({ ...creds, apiKey: e.target.value })} 
-                  placeholder="Your Firebase Web API Key"
-                  style={{ width: '100%', padding: '0.7rem', border: '1px solid #e5e5ea', borderRadius: '8px', fontSize: '0.8rem', fontFamily: 'monospace', boxSizing: 'border-box' }} 
-                />
+                <input type="text" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Firebase API Key" style={{ width: '100%', padding: '0.7rem', border: '1px solid #e5e5ea', borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.4rem', color: '#1d1d1d' }}>Project ID</label>
-                <input 
-                  type="text" 
-                  value={creds.projectId} 
-                  onChange={(e) => setCreds({ ...creds, projectId: e.target.value })} 
-                  placeholder="e.g., body-tracker-5347e"
-                  style={{ width: '100%', padding: '0.7rem', border: '1px solid #e5e5ea', borderRadius: '8px', fontSize: '0.8rem', fontFamily: 'monospace', boxSizing: 'border-box' }} 
-                />
+                <input type="text" value={projId} onChange={(e) => setProjId(e.target.value)} placeholder="body-tracker-5347e" style={{ width: '100%', padding: '0.7rem', border: '1px solid #e5e5ea', borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }} />
               </div>
             </div>
 
-            <button 
-              onClick={handleConnect} 
-              disabled={connecting || !creds.projectId || !creds.apiKey}
-              style={{ width: '100%', padding: '0.9rem', background: '#0071e3', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: connecting ? 'not-allowed' : 'pointer', opacity: connecting ? 0.6 : 1, fontSize: '0.9rem' }}
-            >
-              {connecting ? 'Connecting...' : 'Connect to Firebase'}
+            <button onClick={handleConnect} disabled={connecting} style={{ width: '100%', padding: '0.8rem', background: '#0071e3', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', opacity: connecting ? 0.6 : 1 }}>
+              {connecting ? 'Connecting...' : 'Connect'}
             </button>
 
-            {status && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem', background: status.includes('✅') ? '#f0f9ff' : '#fef2f2', borderRadius: '8px', fontSize: '0.85rem', color: status.includes('✅') ? '#0071e3' : '#ff3b30' }}>
-                {status}
-              </div>
-            )}
+            {status && <div style={{ marginTop: '1rem', padding: '0.75rem', background: status.includes('✅') ? '#f0f9ff' : '#fef2f2', borderRadius: '6px', fontSize: '0.85rem', color: status.includes('✅') ? '#0071e3' : '#ff3b30' }}>{status}</div>}
           </div>
         </div>
       );
     };
 
-    // ============================================
-    // APP WRAPPER - loads nourish-mobile from artifact
-    // ============================================
-    const AppWrapper = ({ user }) => {
-      const [loading, setLoading] = useState(true);
-      const [Component, setComponent] = useState(null);
-
-      useEffect(() => {
-        // Dynamically import and render the nourish-mobile component
-        const initApp = async () => {
-          try {
-            // The CalorieTracker component from nourish-mobile uses window.storage
-            // which is now connected to Firebase
-            setComponent(() => CalorieTracker);
-            setLoading(false);
-          } catch (e) {
-            console.error('Failed to load app:', e);
-            setLoading(false);
-          }
-        };
-        initApp();
-      }, []);
-
-      if (loading) {
-        return (
-          <div style={{ minHeight: '100vh', background: '#f5f5f7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86868b' }}>
-            Initializing app...
-          </div>
-        );
-      }
-
-      return Component ? <Component /> : <div>App failed to load</div>;
-    };
-
-    // ============================================
-    // ROOT
-    // ============================================
-    const Root = () => {
-      const [user, setUser] = useState(null);
-      return user ? <AppWrapper user={user} /> : <LoginScreen onLoggedIn={setUser} />;
-    };
-
-    ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
-  </script>
-
-  <!-- Load and execute nourish-mobile.jsx code inline -->
-  <script type="text/babel">
-    const { useState, useRef, useEffect } = React;
-    const { Plus, Trash2, Calendar, ChevronLeft, ChevronRight, History, Flame, Leaf, Check, X, AlertTriangle, ArrowRight, Camera, Scale, TrendingUp, TrendingDown, Minus, Target, MessageCircle, Send } = lucideReact;
-    const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } = Recharts;
-
-    const DEFAULT_GOALS = { calories: 2000, protein: 150, carbs: 225, fat: 65 };
-
-    const ACTIVITY_LEVELS = [
-      { id: 'sedentary', label: 'Sedentary', hint: 'Little or no exercise', multiplier: 1.2 },
-      { id: 'light', label: 'Lightly active', hint: 'Exercise 1-3 days/week', multiplier: 1.375 },
-      { id: 'moderate', label: 'Moderately active', hint: 'Exercise 3-5 days/week', multiplier: 1.55 },
-      { id: 'active', label: 'Active', hint: 'Exercise 6-7 days/week', multiplier: 1.725 },
-      { id: 'very_active', label: 'Very active', hint: 'Physical job or 2x/day training', multiplier: 1.9 },
-    ];
-
-    const GOAL_OPTIONS = [
-      { id: 'lose', label: 'Lose weight' },
-      { id: 'maintain', label: 'Maintain weight' },
-      { id: 'gain', label: 'Gain weight' },
-    ];
-
-    const GOAL_RATES = [
-      { id: 'mild', label: 'Mild (~0.25 kg/week)', calAdjust: 250 },
-      { id: 'moderate', label: 'Moderate (~0.5 kg/week)', calAdjust: 500 },
-      { id: 'aggressive', label: 'Aggressive (~0.75 kg/week)', calAdjust: 750 },
-    ];
-
-    const SUPPORT_PROMPTS = [
-      "I'm craving something that doesn't fit my plan",
-      "I already ate something off-plan and feel bad",
-      "I've lost motivation to keep going",
-      "I feel like giving up on this altogether",
-    ];
-
-    const COLORS = {
-      background: '#f5f5f7',
-      surface: '#ffffff',
-      surfaceSecondary: '#f9f9fb',
-      textPrimary: '#1d1d1d',
-      textSecondary: '#86868b',
-      textTertiary: '#a1a1a6',
-      accentBlue: '#0071e3',
-      accentGreen: '#34c759',
-      accentOrange: '#ff9500',
-      accentRed: '#ff3b30',
-      borderLight: '#e5e5ea',
-      shadowLight: 'rgba(0, 0, 0, 0.04)',
-      shadowMedium: 'rgba(0, 0, 0, 0.08)',
-    };
-
-    const todayKey = () => new Date().toISOString().split('T')[0];
-
-    const formatDateLabel = (dateStr) => {
-      const [y, m, d] = dateStr.split('-').map(Number);
-      const date = new Date(y, m - 1, d);
-      const today = new Date();
-      const isToday = date.toDateString() === today.toDateString();
-      const yesterday = new Date(today);
-      yesterday.setDate(today.getDate() - 1);
-      const isYesterday = date.toDateString() === yesterday.toDateString();
-      const label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-      if (isToday) return `Today · ${label}`;
-      if (isYesterday) return `Yesterday · ${label}`;
-      return label;
-    };
-
-    const shortDateLabel = (dateStr) => {
-      const [y, m, d] = dateStr.split('-').map(Number);
-      const date = new Date(y, m - 1, d);
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    };
-
-    const WEEKDAY_HEADERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-    const DAY_PERIODS = [
-      { key: 'Morning', short: 'Morn', range: '5–11am' },
-      { key: 'Afternoon', short: 'Aft', range: '12–4pm' },
-      { key: 'Evening', short: 'Eve', range: '5–8pm' },
-      { key: 'Night', short: 'Night', range: '9pm–4am' },
-    ];
-
-    const parseTimeToHour = (timestampStr) => {
-      const match = (timestampStr || '').match(/(\d+):(\d+)\s*(AM|PM)/i);
-      if (!match) return null;
-      let hour = parseInt(match[1], 10);
-      const period = match[3].toUpperCase();
-      if (period === 'PM' && hour !== 12) hour += 12;
-      if (period === 'AM' && hour === 12) hour = 0;
-      return hour;
-    };
-
-    const getDayPeriodKey = (hour) => {
-      if (hour === null) return null;
-      if (hour >= 5 && hour < 12) return 'Morning';
-      if (hour >= 12 && hour < 17) return 'Afternoon';
-      if (hour >= 17 && hour < 21) return 'Evening';
-      return 'Night';
-    };
-
-    const sumTotals = (entries) => ({
-      calories: entries.reduce((s, e) => s + (e.calories || 0), 0),
-      protein: entries.reduce((s, e) => s + (e.protein || 0), 0),
-      carbs: entries.reduce((s, e) => s + (e.carbs || 0), 0),
-      fat: entries.reduce((s, e) => s + (e.fat || 0), 0),
-    });
-
-    const dateOffset = (days) => {
-      const d = new Date();
-      d.setDate(d.getDate() - days);
-      return d.toISOString().split('T')[0];
-    };
-
-    const buildMonthGrid = (year, month) => {
-      const firstDay = new Date(year, month, 1);
-      const startWeekday = firstDay.getDay();
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const cells = [];
-      for (let i = 0; i < startWeekday; i++) cells.push(null);
-      for (let d = 1; d <= daysInMonth; d++) {
-        cells.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-      }
-      while (cells.length % 7 !== 0) cells.push(null);
-      const weeks = [];
-      for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
-      return weeks;
-    };
-
-    const renderBold = (text) => {
-      if (!text) return null;
-      const parts = text.split(/(\*\*[^*]+\*\*)/g);
-      return parts.map((part, i) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={i} style={{ color: COLORS.textPrimary, fontWeight: '700' }}>{part.slice(2, -2)}</strong>;
-        }
-        return <React.Fragment key={i}>{part}</React.Fragment>;
-      });
-    };
-
-    const parseDaySummary = (text) => {
-      if (!text) return null;
-      const good = text.match(/GOOD:\s*(.*)/i)?.[1]?.trim();
-      const watch = text.match(/WATCH:\s*(.*)/i)?.[1]?.trim();
-      const next = text.match(/NEXT:\s*(.*)/i)?.[1]?.trim();
-      if (!good && !watch && !next) return null;
-      return { good, watch, next };
-    };
-
-    const getCalorieBand = (calories, goalCalories) => {
-      const over = calories - goalCalories;
-      if (over <= 0) return 'green';
-      if (over <= 300) return 'yellow';
-      return 'red';
-    };
-
-    const CompactNutrientBar = ({ label, consumed, goal, unit, last }) => {
-      const percentage = Math.min(100, (consumed / goal) * 100);
-      const displayPct = Math.round((consumed / goal) * 100);
-      const getColor = () => {
-        if (percentage <= 100) return '#6b9d8a';
-        if (percentage <= 110) return '#f4a957';
-        return '#d97757';
-      };
-      const color = getColor();
-
-      return (
-        <div style={{ marginBottom: last ? 0 : '0.4rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.2rem' }}>
-            <span style={{ fontSize: '0.65rem', color: COLORS.textSecondary, fontWeight: '600' }}>{label}</span>
-            <span style={{ fontSize: '0.65rem', color: COLORS.textSecondary }}>
-              {consumed}{unit} · <strong style={{ color }}>{displayPct}%</strong>
-            </span>
-          </div>
-          <div style={{ height: '4px', background: COLORS.borderLight, borderRadius: '2px', overflow: 'hidden' }}>
-            <div style={{ height: '100%', background: color, width: `${percentage}%`, transition: 'width 0.3s' }} />
-          </div>
-        </div>
-      );
-    };
-
-    const MealCard = ({ entry, onDelete }) => (
-      <div style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '12px', padding: '0.7rem', marginBottom: '0.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.5rem', gap: '0.5rem' }}>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', minWidth: 0, flex: 1 }}>
-            {entry.image && <img src={entry.image} alt={entry.food} style={{ width: '34px', height: '34px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 }} />}
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: COLORS.textPrimary, fontWeight: '500', fontSize: '0.85rem' }}>{entry.food}</div>
-              <div style={{ fontSize: '0.7rem', color: COLORS.textTertiary, marginTop: '0.1rem' }}>{entry.timestamp}</div>
-            </div>
-          </div>
-          {onDelete && (
-            <button onClick={() => onDelete(entry.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: COLORS.accentRed, padding: '0.25rem', flexShrink: 0 }}>
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
-
-        {(entry.mealGood || entry.mealBad) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingBottom: '0.5rem', marginBottom: '0.5rem', borderBottom: '1px solid #f0f0f0' }}>
-            {entry.mealGood && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
-                <Check size={12} style={{ color: COLORS.accentGreen, marginTop: '1px', flexShrink: 0 }} />
-                <span style={{ fontSize: '0.75rem', color: COLORS.textPrimary, lineHeight: 1.3 }}>{entry.mealGood}</span>
-              </div>
-            )}
-            {entry.mealBad && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
-                <AlertTriangle size={12} style={{ color: COLORS.accentRed, marginTop: '1px', flexShrink: 0 }} />
-                <span style={{ fontSize: '0.75rem', color: COLORS.textPrimary, lineHeight: 1.3 }}>{entry.mealBad}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem', fontSize: '0.7rem' }}>
-          <div><span style={{ color: COLORS.textTertiary }}>Cal </span><span style={{ color: COLORS.accentGreen, fontWeight: '600' }}>{entry.calories}</span></div>
-          <div><span style={{ color: COLORS.textTertiary }}>P </span><span style={{ color: COLORS.accentGreen, fontWeight: '600' }}>{entry.protein}g</span></div>
-          <div><span style={{ color: COLORS.textTertiary }}>C </span><span style={{ color: COLORS.accentGreen, fontWeight: '600' }}>{entry.carbs}g</span></div>
-          <div><span style={{ color: COLORS.textTertiary }}>F </span><span style={{ color: COLORS.accentGreen, fontWeight: '600' }}>{entry.fat}g</span></div>
-        </div>
-      </div>
-    );
-
-    const CalorieTracker = () => {
+    const App = ({ user }) => {
       const [activeTab, setActiveTab] = useState('today');
       const [entries, setEntries] = useState([]);
       const [foodInput, setFoodInput] = useState('');
       const [loading, setLoading] = useState(false);
-      const [photoPreviews, setPhotoPreviews] = useState([]);
-      const [photoError, setPhotoError] = useState('');
-      const [initialLoad, setInitialLoad] = useState(true);
-      const [dailyGoals, setDailyGoals] = useState(DEFAULT_GOALS);
+      const [appLoading, setAppLoading] = useState(true);
       const photoInputRef = useRef(null);
 
-      const today = todayKey();
-      const totalCalories = entries.reduce((sum, e) => sum + (e.calories || 0), 0);
-      const totalProtein = entries.reduce((sum, e) => sum + (e.protein || 0), 0);
-      const totalCarbs = entries.reduce((sum, e) => sum + (e.carbs || 0), 0);
-      const totalFat = entries.reduce((sum, e) => sum + (e.fat || 0), 0);
-
       useEffect(() => {
-        const loadToday = async () => {
-          try {
-            const result = await window.storage.get(`day:${today}`, false);
-            if (result && result.value) {
-              const data = JSON.parse(result.value);
-              setEntries(data.entries || []);
-            }
-          } catch (e) {
-            console.error('Load error:', e);
-          }
-          setInitialLoad(false);
-        };
-        loadToday();
+        loadData();
       }, []);
 
-      useEffect(() => {
-        if (initialLoad) return;
-        const persist = async () => {
-          try {
-            await window.storage.set(`day:${today}`, JSON.stringify({ date: today, entries, totals: sumTotals(entries) }), false);
-          } catch (e) {
-            console.error('Storage error:', e);
-          }
-        };
-        persist();
-      }, [entries, initialLoad]);
-
-      const handlePhotoSelect = async (e) => {
-        const files = Array.from(e.target.files || []);
-        e.target.value = '';
-        if (!files.length) return;
-
-        setPhotoError('');
+      const loadData = async () => {
         try {
-          const newPreviews = [];
-          for (const file of files) {
-            if (!file.type.startsWith('image/')) {
-              setPhotoError('All files must be images.');
-              continue;
-            }
-            const reader = new FileReader();
-            const preview = await new Promise((resolve) => {
-              reader.onload = () => resolve(reader.result);
-              reader.readAsDataURL(file);
-            });
-            newPreviews.push(preview);
-          }
-          setPhotoPreviews([...photoPreviews, ...newPreviews]);
-        } catch (error) {
-          console.error('Error preparing photos:', error);
-          setPhotoError('Could not load some photos. Try again.');
+          const today = new Date().toISOString().split('T')[0];
+          const data = await firebaseAPI.get(`users/${firebaseUser.uid}/day:${today}`);
+          if (data && data.entries) setEntries(data.entries);
+        } catch (e) {
+          console.error('Load error:', e);
+        }
+        setAppLoading(false);
+      };
+
+      const saveEntries = async (updated) => {
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          await firebaseAPI.set(`users/${firebaseUser.uid}/day:${today}`, { entries: updated });
+        } catch (e) {
+          console.error('Save error:', e);
         }
       };
 
-      const removePhoto = (index) => {
-        setPhotoPreviews(photoPreviews.filter((_, i) => i !== index));
-      };
-
       const logMeal = async () => {
-        const noteText = foodInput.trim();
-        const hasPhotos = photoPreviews.length > 0;
-        const hasText = noteText.length > 0;
-        if (!hasPhotos && !hasText) return;
-
+        if (!foodInput.trim()) return;
         setLoading(true);
-        setPhotoError('');
+
         try {
-          const newEntries = [];
-
-          if (hasPhotos) {
-            for (const photoPreview of photoPreviews) {
-              const notePart = hasText ? ` The person also added this note: "${noteText}". Use the note together with the photo.` : '';
-              const response = await fetch('https://api.anthropic.com/v1/messages', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  model: 'claude-sonnet-4-6',
-                  max_tokens: 150,
-                  messages: [{
-                    role: 'user',
-                    content: [
-                      {
-                        type: 'image',
-                        source: {
-                          type: 'base64',
-                          media_type: 'image/jpeg',
-                          data: photoPreview.split(',')[1],
-                        },
-                      },
-                      {
-                        type: 'text',
-                        text: `Look at this meal photo and estimate its nutritional content.${notePart} Reply ONLY with this exact format (no other text):
-description:<short 3-6 word description of what's shown>
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 150,
+              messages: [{
+                role: 'user',
+                content: `Estimate nutrition for: "${foodInput}". Reply ONLY:
 calories:XXX | protein:XXg | carbs:XXg | fat:XXg
-good:<one short, specific, honest thing that's nutritionally good about this meal>
-bad:<one short, specific, honest thing that's not ideal about this meal>`,
-                      },
-                    ],
-                  }],
-                }),
-              });
+good:<one positive thing>
+bad:<one thing to improve>`,
+              }],
+            }),
+          });
 
-              if (!response.ok) {
-                throw new Error(`API error: ${response.status}`);
-              }
+          if (!response.ok) throw new Error(`API error: ${response.status}`);
 
-              const data = await response.json();
-              const text = data.content[0]?.text || '';
+          const data = await response.json();
+          const text = data.content[0]?.text || '';
 
-              const descriptionMatch = text.match(/description:\s*(.*)/i);
-              const calorieMatch = text.match(/calories:(\d+)/);
-              const proteinMatch = text.match(/protein:(\d+)g/);
-              const carbsMatch = text.match(/carbs:(\d+)g/);
-              const fatMatch = text.match(/fat:(\d+)g/);
-              const goodMatch = text.match(/good:\s*(.*)/i);
-              const badMatch = text.match(/bad:\s*(.*)/i);
+          const calMatch = text.match(/calories:(\d+)/);
+          const protMatch = text.match(/protein:(\d+)g/);
+          const carbMatch = text.match(/carbs:(\d+)g/);
+          const fatMatch = text.match(/fat:(\d+)g/);
+          const goodMatch = text.match(/good:\s*(.*)/i);
+          const badMatch = text.match(/bad:\s*(.*)/i);
 
-              const description = descriptionMatch?.[1]?.trim() || 'Logged meal';
+          const entry = {
+            id: Date.now(),
+            food: foodInput,
+            calories: parseInt(calMatch?.[1] || '0'),
+            protein: parseInt(protMatch?.[1] || '0'),
+            carbs: parseInt(carbMatch?.[1] || '0'),
+            fat: parseInt(fatMatch?.[1] || '0'),
+            good: goodMatch?.[1]?.trim() || '',
+            bad: badMatch?.[1]?.trim() || '',
+            time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          };
 
-              newEntries.push({
-                id: Date.now() + Math.random(),
-                food: description,
-                image: photoPreview,
-                calories: parseInt(calorieMatch?.[1] || '0', 10),
-                protein: parseInt(proteinMatch?.[1] || '0', 10),
-                carbs: parseInt(carbsMatch?.[1] || '0', 10),
-                fat: parseInt(fatMatch?.[1] || '0', 10),
-                mealGood: goodMatch?.[1]?.trim() || '',
-                mealBad: badMatch?.[1]?.trim() || '',
-                timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-              });
-            }
-          } else {
-            const response = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: 'claude-sonnet-4-6',
-                max_tokens: 150,
-                messages: [{
-                  role: 'user',
-                  content: `Estimate nutritional content for: "${noteText}". Reply ONLY:
-calories:XXX | protein:XXg | carbs:XXg | fat:XXg
-good:<one short, specific, honest thing that's nutritionally good about this meal>
-bad:<one short, specific, honest thing that's not ideal about this meal>`,
-                }],
-              }),
-            });
-
-            if (!response.ok) {
-              throw new Error(`API error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            const text = data.content[0]?.text || '';
-
-            const calorieMatch = text.match(/calories:(\d+)/);
-            const proteinMatch = text.match(/protein:(\d+)g/);
-            const carbsMatch = text.match(/carbs:(\d+)g/);
-            const fatMatch = text.match(/fat:(\d+)g/);
-            const goodMatch = text.match(/good:\s*(.*)/i);
-            const badMatch = text.match(/bad:\s*(.*)/i);
-
-            newEntries.push({
-              id: Date.now(),
-              food: noteText,
-              calories: parseInt(calorieMatch?.[1] || '0', 10),
-              protein: parseInt(proteinMatch?.[1] || '0', 10),
-              carbs: parseInt(carbsMatch?.[1] || '0', 10),
-              fat: parseInt(fatMatch?.[1] || '0', 10),
-              mealGood: goodMatch?.[1]?.trim() || '',
-              mealBad: badMatch?.[1]?.trim() || '',
-              timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            });
-          }
-
-          const updated = [...entries, ...newEntries];
+          const updated = [...entries, entry];
           setEntries(updated);
           setFoodInput('');
-          setPhotoPreviews([]);
+          await saveEntries(updated);
         } catch (error) {
-          console.error('Error logging meal:', error);
-          setPhotoError(`Error: ${error.message}`);
+          alert('Error: ' + error.message);
         }
         setLoading(false);
       };
 
+      if (appLoading) {
+        return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#86868b' }}>Loading...</div>;
+      }
+
+      const totalCal = entries.reduce((s, e) => s + e.calories, 0);
+      const totalProt = entries.reduce((s, e) => s + e.protein, 0);
+      const totalCarb = entries.reduce((s, e) => s + e.carbs, 0);
+      const totalFat = entries.reduce((s, e) => s + e.fat, 0);
+
       return (
-        <div style={{ minHeight: '100vh', backgroundColor: COLORS.background, fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '70px', WebkitOverflowScrolling: 'touch' }}>
-            <div style={{ padding: '1rem 0.75rem', borderBottom: `1px solid ${COLORS.borderLight}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
-                <div style={{ width: '30px', height: '30px', borderRadius: '7px', background: COLORS.accentBlue, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Leaf size={16} color="white" />
-                </div>
-                <h1 style={{ fontSize: '1.3rem', color: COLORS.textPrimary, margin: 0, fontWeight: '700' }}>Body & Nutrition Tracker</h1>
-              </div>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f5f5f7' }}>
+          <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '70px' }}>
+            <div style={{ padding: '1rem', borderBottom: '1px solid #e5e5ea', background: '#fff' }}>
+              <h1 style={{ fontSize: '1.3rem', fontWeight: '700', color: '#1d1d1d' }}>📱 Body & Nutrition Tracker</h1>
+              <p style={{ fontSize: '0.75rem', color: '#86868b', marginTop: '0.3rem' }}>✅ Firebase Connected</p>
             </div>
 
             {activeTab === 'today' && (
-              <div style={{ padding: '1rem 0.75rem' }}>
-                <div style={{ marginBottom: '1.2rem' }}>
-                  <h2 style={{ fontSize: '0.95rem', color: COLORS.textPrimary, marginBottom: '0.5rem', fontWeight: '600' }}>Log Meal</h2>
-
-                  <input ref={photoInputRef} type="file" accept="image/*" multiple onChange={handlePhotoSelect} style={{ display: 'none' }} />
-
-                  <div style={{ display: 'flex', gap: '0.4rem', marginBottom: photoPreviews.length > 0 ? '0.6rem' : 0 }}>
-                    <input
-                      type="text"
-                      value={foodInput}
-                      onChange={(e) => setFoodInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && logMeal()}
-                      placeholder="e.g., grilled chicken"
-                      style={{ flex: 1, padding: '0.6rem 0.7rem', border: `1.5px solid ${COLORS.borderLight}`, borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                    />
-
-                    <button onClick={() => photoInputRef.current?.click()} style={{ width: '40px', height: '40px', flexShrink: 0, background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, border: `1.5px solid ${COLORS.borderLight}`, borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLORS.textSecondary }}>
-                      <Camera size={15} />
-                    </button>
-
-                    <button onClick={logMeal} disabled={loading || (!foodInput.trim() && photoPreviews.length === 0)} style={{ flexShrink: 0, padding: '0.6rem 0.9rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500', opacity: loading ? 0.6 : 1 }}>
-                      {loading ? '…' : 'Log'}
-                    </button>
-                  </div>
-
-                  {photoPreviews.length > 0 && (
-                    <div style={{ marginBottom: '0.6rem' }}>
-                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        {photoPreviews.map((preview, idx) => (
-                          <div key={idx} style={{ position: 'relative', width: '45px', height: '45px' }}>
-                            <img src={preview} alt={`Meal photo ${idx + 1}`} style={{ width: '45px', height: '45px', borderRadius: '6px', objectFit: 'cover' }} />
-                            <button onClick={() => removePhoto(idx)} title="Remove photo" style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: COLORS.accentRed, color: 'white', border: '2px solid white', fontSize: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
-                              <X size={10} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: COLORS.textTertiary, marginTop: '0.35rem' }}>
-                        {photoPreviews.length} photo{photoPreviews.length !== 1 ? 's' : ''} selected
-                      </div>
-                    </div>
-                  )}
-
-                  {photoError && (
-                    <div style={{ color: COLORS.accentRed, fontSize: '0.75rem', marginTop: '0.4rem' }}>
-                      {photoError}
-                    </div>
-                  )}
+              <div style={{ padding: '1rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem' }}>
+                  <input type="text" value={foodInput} onChange={(e) => setFoodInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && logMeal()} placeholder="Log a meal..." style={{ flex: 1, padding: '0.6rem', border: '1px solid #e5e5ea', borderRadius: '6px', fontSize: '0.9rem' }} />
+                  <button onClick={logMeal} disabled={loading || !foodInput.trim()} style={{ padding: '0.6rem 1.2rem', background: '#0071e3', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', opacity: loading ? 0.6 : 1 }}>
+                    {loading ? '...' : 'Log'}
+                  </button>
                 </div>
 
-                <div style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '12px', padding: '1rem', marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.8rem' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '1.6rem', fontWeight: '700', color: totalCalories > dailyGoals.calories ? '#d97757' : '#2c2c2c' }}>
-                        {totalCalories}
+                <div style={{ background: '#fff', borderRadius: '12px', padding: '1rem', marginBottom: '1.2rem', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: totalCal > 2000 ? '#d97757' : '#2c2c2c', marginBottom: '0.5rem' }}>{totalCal}</div>
+                  <div style={{ fontSize: '0.75rem', color: '#86868b', marginBottom: '1rem' }}>/ 2000 cal</div>
+
+                  <div style={{ fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                        <span>Protein</span>
+                        <strong>{totalProt}g / 150g</strong>
                       </div>
-                      <div style={{ fontSize: '0.7rem', color: COLORS.textSecondary }}>
-                        / {dailyGoals.calories} cal
+                      <div style={{ height: '4px', background: '#e5e5ea', borderRadius: '2px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', background: '#34c759', width: `${Math.min(100, (totalProt / 150) * 100)}%` }} />
                       </div>
                     </div>
-                  </div>
-
-                  <div>
-                    <CompactNutrientBar label="Protein" consumed={totalProtein} goal={dailyGoals.protein} unit="g" />
-                    <CompactNutrientBar label="Carbs" consumed={totalCarbs} goal={dailyGoals.carbs} unit="g" />
-                    <CompactNutrientBar label="Fat" consumed={totalFat} goal={dailyGoals.fat} unit="g" last />
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                        <span>Carbs</span>
+                        <strong>{totalCarb}g / 225g</strong>
+                      </div>
+                      <div style={{ height: '4px', background: '#e5e5ea', borderRadius: '2px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', background: '#34c759', width: `${Math.min(100, (totalCarb / 225) * 100)}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                        <span>Fat</span>
+                        <strong>{totalFat}g / 65g</strong>
+                      </div>
+                      <div style={{ height: '4px', background: '#e5e5ea', borderRadius: '2px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', background: '#34c759', width: `${Math.min(100, (totalFat / 65) * 100)}%` }} />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {entries.length > 0 && (
-                  <div style={{ marginBottom: '1rem' }}>
-                    <h2 style={{ fontSize: '0.95rem', color: COLORS.textPrimary, marginBottom: '0.6rem', fontWeight: '600' }}>
-                      Meals ({entries.length})
-                    </h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {[...entries].reverse().map((entry) => (
-                        <MealCard key={entry.id} entry={entry} onDelete={(id) => setEntries(entries.filter(e => e.id !== id))} />
-                      ))}
-                    </div>
+                  <div>
+                    <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: '#1d1d1d', marginBottom: '0.8rem' }}>Meals ({entries.length})</h2>
+                    {[...entries].reverse().map((e) => (
+                      <div key={e.id} style={{ background: '#fff', borderRadius: '8px', padding: '0.8rem', marginBottom: '0.6rem', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                        <div style={{ fontWeight: '600', color: '#1d1d1d', marginBottom: '0.3rem' }}>{e.food}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#86868b', marginBottom: '0.3rem' }}>{e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g</div>
+                        {e.good && <div style={{ fontSize: '0.75rem', color: '#34c759', marginBottom: '0.2rem' }}>✓ {e.good}</div>}
+                        {e.bad && <div style={{ fontSize: '0.75rem', color: '#ff3b30' }}>⚠ {e.bad}</div>}
+                        <div style={{ fontSize: '0.7rem', color: '#a1a1a6', marginTop: '0.3rem' }}>{e.time}</div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             )}
 
             {activeTab === 'history' && (
-              <div style={{ padding: '1rem 0.75rem' }}>
-                <h2 style={{ fontSize: '0.95rem', color: COLORS.textPrimary, marginBottom: '0.8rem', fontWeight: '600' }}>
-                  Meal History
-                </h2>
+              <div style={{ padding: '1rem' }}>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: '#1d1d1d', marginBottom: '0.8rem' }}>Meal History</h2>
                 {entries.length > 0 ? (
                   <div>
                     {[...entries].reverse().map((e) => (
-                      <div key={e.id} style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '0.75rem', marginBottom: '0.6rem' }}>
-                        <div style={{ fontWeight: '600', color: COLORS.textPrimary, fontSize: '0.9rem' }}>{e.food}</div>
-                        <div style={{ fontSize: '0.8rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>{e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g</div>
+                      <div key={e.id} style={{ background: '#fff', borderRadius: '8px', padding: '0.8rem', marginBottom: '0.6rem', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                        <div style={{ fontWeight: '600', color: '#1d1d1d' }}>{e.food}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#86868b', marginTop: '0.3rem' }}>{e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g</div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: COLORS.textTertiary }}>No meal history</div>
+                  <div style={{ textAlign: 'center', color: '#a1a1a6', padding: '2rem' }}>No meals</div>
                 )}
               </div>
             )}
 
             {activeTab === 'body' && (
-              <div style={{ padding: '1rem 0.75rem' }}>
-                <h2 style={{ fontSize: '0.95rem', color: COLORS.textPrimary, marginBottom: '1rem', fontWeight: '600' }}>Body Lab</h2>
-                <div style={{ textAlign: 'center', color: COLORS.textTertiary }}>Coming soon...</div>
+              <div style={{ padding: '1rem', textAlign: 'center', color: '#a1a1a6' }}>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: '#1d1d1d', marginBottom: '1rem' }}>Body Lab</h2>
+                Coming soon...
               </div>
             )}
 
             {activeTab === 'support' && (
-              <div style={{ padding: '1rem 0.75rem' }}>
-                <h2 style={{ fontSize: '0.95rem', color: COLORS.textPrimary, marginBottom: '1rem', fontWeight: '600' }}>Support</h2>
-                <div style={{ textAlign: 'center', color: COLORS.textTertiary }}>Coming soon...</div>
+              <div style={{ padding: '1rem', textAlign: 'center', color: '#a1a1a6' }}>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: '#1d1d1d', marginBottom: '1rem' }}>Support</h2>
+                Coming soon...
               </div>
             )}
           </div>
 
-          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: COLORS.surface, borderTop: `1px solid ${COLORS.borderLight}`, display: 'flex', gap: '0.25rem', padding: '0.4rem 0.5rem', boxShadow: '0 -2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: '1px solid #e5e5ea', display: 'flex', gap: '0.25rem', padding: '0.4rem' }}>
             {['today', 'history', 'body', 'support'].map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.3rem',
-                  padding: '0.5rem 0.25rem',
-                  background: activeTab === tab ? '#6b9d8a' : 'transparent',
-                  color: activeTab === tab ? 'white' : '#6b5b54',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '0.7rem',
-                  fontWeight: activeTab === tab ? '600' : '500',
-                }}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: 1, padding: '0.6rem', background: activeTab === tab ? '#6b9d8a' : 'transparent', color: activeTab === tab ? 'white' : '#86868b', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: activeTab === tab ? '600' : '500', fontSize: '0.75rem' }}>
+                {tab === 'today' && '📋 Today'}
+                {tab === 'history' && '📜 History'}
+                {tab === 'body' && '💪 Body'}
+                {tab === 'support' && '💬 Support'}
               </button>
             ))}
           </div>
         </div>
       );
     };
+
+    const Root = () => {
+      const [user, setUser] = useState(null);
+      return user ? <App user={user} /> : <LoginScreen onLoggedIn={setUser} />;
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
   </script>
 </body>
 </html>
