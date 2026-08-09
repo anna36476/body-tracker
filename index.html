@@ -4,11 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Body & Nutrition Tracker</title>
-  
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.10.0/dist/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; }
@@ -17,112 +16,100 @@
 </head>
 <body>
   <div id="root"></div>
-
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
+    
+    // Firebase config
+    let firebaseUser = null;
+    let firebaseIdToken = null;
+    let projectId = null;
+    
+    const FirebaseAPI = {
+      async signIn(apiKey) {
+        const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ returnSecureToken: true }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error.message);
+        firebaseUser = { uid: data.localId };
+        firebaseIdToken = data.idToken;
+        return firebaseUser;
+      },
+
+      async set(path, value) {
+        const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
+        const res = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(value),
+        });
+        if (!res.ok) throw new Error('Save failed');
+        return res.json();
+      },
+
+      async get(path) {
+        const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
+        const res = await fetch(url);
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error('Load failed');
+        return res.json();
+      },
+
+      async delete(path) {
+        const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
+        const res = await fetch(url, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+        return res.json();
+      },
+    };
+
+    // Storage adapter for app
+    const StorageAdapter = {
+      async set(key, value) {
+        try {
+          await FirebaseAPI.set(`users/${firebaseUser.uid}/${key}`, JSON.parse(value));
+          return { key, value };
+        } catch (e) {
+          console.error('Storage error:', e);
+          return null;
+        }
+      },
+      async get(key) {
+        try {
+          const data = await FirebaseAPI.get(`users/${firebaseUser.uid}/${key}`);
+          if (data) return { key, value: JSON.stringify(data) };
+          return null;
+        } catch (e) {
+          console.error('Storage error:', e);
+          return null;
+        }
+      },
+      async delete(key) {
+        try {
+          await FirebaseAPI.delete(`users/${firebaseUser.uid}/${key}`);
+          return { key, deleted: true };
+        } catch (e) {
+          return null;
+        }
+      },
+    };
 
     const COLORS = {
       background: '#f5f5f7',
       surface: '#ffffff',
+      surfaceSecondary: '#f9f9fb',
       textPrimary: '#1d1d1d',
       textSecondary: '#86868b',
       textTertiary: '#a1a1a6',
       accentBlue: '#0071e3',
+      accentGreen: '#34c759',
+      accentOrange: '#ff9500',
       accentRed: '#ff3b30',
       borderLight: '#e5e5ea',
       shadowLight: 'rgba(0, 0, 0, 0.04)',
-    };
-
-    // Firebase REST API client
-    let firebaseUser = null;
-    let firebaseIdToken = null;
-    let projectId = null;
-
-    const FirebaseClient = {
-      async signInAnonymously(apiKey) {
-        try {
-          const response = await fetch(
-            `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ returnSecureToken: true }),
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error('Sign in failed');
-          }
-
-          const data = await response.json();
-          firebaseUser = { uid: data.localId };
-          firebaseIdToken = data.idToken;
-          return firebaseUser;
-        } catch (error) {
-          console.error('Firebase sign in error:', error);
-          throw error;
-        }
-      },
-
-      async set(path, value, projectId) {
-        if (!firebaseIdToken) throw new Error('Not authenticated');
-
-        try {
-          const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
-          const response = await fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(value),
-          });
-
-          if (!response.ok) {
-            throw new Error('Set failed');
-          }
-
-          return await response.json();
-        } catch (error) {
-          console.error('Firebase set error:', error);
-          throw error;
-        }
-      },
-
-      async get(path, projectId) {
-        if (!firebaseIdToken) throw new Error('Not authenticated');
-
-        try {
-          const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
-          const response = await fetch(url);
-
-          if (!response.ok) {
-            if (response.status === 404) return null;
-            throw new Error('Get failed');
-          }
-
-          const data = await response.json();
-          return data;
-        } catch (error) {
-          console.error('Firebase get error:', error);
-          throw error;
-        }
-      },
-
-      async delete(path, projectId) {
-        if (!firebaseIdToken) throw new Error('Not authenticated');
-
-        try {
-          const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
-          const response = await fetch(url, { method: 'DELETE' });
-
-          if (!response.ok) {
-            throw new Error('Delete failed');
-          }
-
-          return await response.json();
-        } catch (error) {
-          console.error('Firebase delete error:', error);
-          throw error;
-        }
-      },
+      shadowMedium: 'rgba(0, 0, 0, 0.08)',
     };
 
     // Login Screen
@@ -136,25 +123,20 @@
 
       const handleConnect = async () => {
         if (!creds.projectId || !creds.apiKey) {
-          setStatus('❌ API Key and Project ID required');
+          setStatus('❌ Both fields required');
           return;
         }
-
         setConnecting(true);
         setStatus('Signing in...');
-
         try {
           localStorage.setItem('fb_apiKey', creds.apiKey);
           localStorage.setItem('fb_projectId', creds.projectId);
-
-          const user = await FirebaseClient.signInAnonymously(creds.apiKey);
           projectId = creds.projectId;
-
-          setStatus('✅ Connected to Firebase!');
+          const user = await FirebaseAPI.signIn(creds.apiKey);
+          setStatus('✅ Connected!');
           setTimeout(() => onLoggedIn(user), 800);
-        } catch (error) {
-          console.error('Connection error:', error);
-          setStatus(`❌ Connection failed: ${error.message}`);
+        } catch (e) {
+          setStatus(`❌ ${e.message}`);
           setConnecting(false);
         }
       };
@@ -163,98 +145,47 @@
         <div style={{ minHeight: '100vh', background: COLORS.background, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div style={{ background: COLORS.surface, borderRadius: '16px', padding: '2rem', maxWidth: '500px', width: '100%', boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
             <h1 style={{ marginBottom: '0.5rem', fontSize: '2rem', color: COLORS.textPrimary }}>📱 Body Tracker</h1>
-            <p style={{ color: COLORS.textSecondary, marginBottom: '2rem' }}>Firebase Setup (REST API)</p>
-
+            <p style={{ color: COLORS.textSecondary, marginBottom: '2rem' }}>Firebase Login</p>
+            
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem', color: COLORS.textPrimary }}>API Key</label>
-                <input
-                  type="text"
-                  value={creds.apiKey}
-                  onChange={(e) => setCreds({ ...creds, apiKey: e.target.value })}
-                  placeholder="Your Firebase API Key"
-                  style={{ width: '100%', padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }}
-                />
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem' }}>API Key</label>
+                <input type="text" value={creds.apiKey} onChange={(e) => setCreds({ ...creds, apiKey: e.target.value })} placeholder="Firebase API Key" style={{ width: '100%', padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }} />
               </div>
-
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem', color: COLORS.textPrimary }}>Project ID</label>
-                <input
-                  type="text"
-                  value={creds.projectId}
-                  onChange={(e) => setCreds({ ...creds, projectId: e.target.value })}
-                  placeholder="Your Firebase Project ID"
-                  style={{ width: '100%', padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }}
-                />
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem' }}>Project ID</label>
+                <input type="text" value={creds.projectId} onChange={(e) => setCreds({ ...creds, projectId: e.target.value })} placeholder="Firebase Project ID" style={{ width: '100%', padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }} />
               </div>
             </div>
 
-            <button
-              onClick={handleConnect}
-              disabled={connecting || !creds.projectId || !creds.apiKey}
-              style={{
-                width: '100%',
-                padding: '0.8rem',
-                background: COLORS.accentBlue,
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: '600',
-                cursor: connecting ? 'not-allowed' : 'pointer',
-                opacity: connecting ? 0.6 : 1,
-              }}
-            >
+            <button onClick={handleConnect} disabled={connecting || !creds.projectId || !creds.apiKey} style={{ width: '100%', padding: '0.8rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: connecting ? 'not-allowed' : 'pointer', opacity: connecting ? 0.6 : 1 }}>
               {connecting ? 'Connecting...' : 'Connect to Firebase'}
             </button>
 
-            {status && (
-              <div style={{
-                marginTop: '1rem',
-                padding: '0.75rem',
-                background: status.includes('✅') ? '#f0f9ff' : '#fef2f2',
-                borderRadius: '6px',
-                fontSize: '0.9rem',
-                color: status.includes('✅') ? COLORS.accentBlue : COLORS.accentRed,
-              }}>
-                {status}
-              </div>
-            )}
-
-            <div style={{ marginTop: '2rem', padding: '1rem', background: '#f9f9fb', borderRadius: '8px', fontSize: '0.75rem', color: COLORS.textSecondary, lineHeight: '1.6' }}>
-              <strong>Quick Setup:</strong>
-              <ul style={{ marginLeft: '1rem', marginTop: '0.5rem' }}>
-                <li>Go to Firebase Console</li>
-                <li>Settings → Project settings</li>
-                <li>Copy: API Key (Web API key)</li>
-                <li>Copy: Project ID</li>
-                <li>Enable Anonymous Authentication</li>
-                <li>Create Realtime Database (Test mode)</li>
-              </ul>
-            </div>
+            {status && <div style={{ marginTop: '1rem', padding: '0.75rem', background: status.includes('✅') ? '#f0f9ff' : '#fef2f2', borderRadius: '6px', fontSize: '0.9rem', color: status.includes('✅') ? COLORS.accentBlue : COLORS.accentRed }}>{status}</div>}
           </div>
         </div>
       );
     };
 
-    // Main App
+    // Main App (simplified version with key features)
     const App = ({ user }) => {
       const [entries, setEntries] = useState([]);
       const [foodInput, setFoodInput] = useState('');
       const [loading, setLoading] = useState(false);
+      const [activeTab, setActiveTab] = useState('today');
       const [appLoading, setAppLoading] = useState(true);
 
       useEffect(() => {
-        loadEntries();
+        loadData();
       }, []);
 
-      const loadEntries = async () => {
+      const loadData = async () => {
         try {
-          const data = await FirebaseClient.get(`users/${user.uid}/entries`, projectId);
-          if (data) {
-            setEntries(Array.isArray(data) ? data : Object.values(data));
-          }
-        } catch (error) {
-          console.error('Load error:', error);
+          const data = await StorageAdapter.get('entries');
+          if (data) setEntries(JSON.parse(data.value));
+        } catch (e) {
+          console.error('Load error:', e);
         }
         setAppLoading(false);
       };
@@ -270,7 +201,7 @@
             body: JSON.stringify({
               model: 'claude-sonnet-4-6',
               max_tokens: 100,
-              messages: [{ role: 'user', content: `Estimate: "${foodInput}". Reply: calories:X protein:Xg carbs:Xg fat:Xg` }],
+              messages: [{ role: 'user', content: `Estimate: "${foodInput}". Reply only: calories:X protein:Xg carbs:Xg fat:Xg` }],
             }),
           });
 
@@ -284,95 +215,74 @@
             protein: parseInt(text.match(/protein:(\d+)/)?.[1] || '0'),
             carbs: parseInt(text.match(/carbs:(\d+)/)?.[1] || '0'),
             fat: parseInt(text.match(/fat:(\d+)/)?.[1] || '0'),
-            time: new Date().toLocaleString(),
+            timestamp: new Date().toLocaleString(),
           };
 
           const updated = [...entries, entry];
           setEntries(updated);
           setFoodInput('');
-
-          // Save to Firebase
-          await FirebaseClient.set(`users/${user.uid}/entries`, updated, projectId);
+          await StorageAdapter.set('entries', JSON.stringify(updated));
         } catch (error) {
           console.error('Error:', error);
-          alert('Error logging meal: ' + error.message);
+          alert('Error logging meal');
         }
         setLoading(false);
       };
 
       if (appLoading) {
-        return (
-          <div style={{ minHeight: '100vh', background: COLORS.background, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ color: COLORS.textSecondary }}>Loading...</div>
-          </div>
-        );
+        return <div style={{ minHeight: '100vh', background: COLORS.background, display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLORS.textSecondary }}>Loading...</div>;
       }
 
       return (
-        <div style={{ minHeight: '100vh', background: COLORS.background }}>
+        <div style={{ minHeight: '100vh', background: COLORS.background, paddingBottom: '70px' }}>
           <div style={{ padding: '1rem', borderBottom: `1px solid ${COLORS.borderLight}`, background: COLORS.surface }}>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: COLORS.textPrimary }}>📱 Body Tracker</h1>
-            <p style={{ fontSize: '0.8rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>✅ Firebase Connected (UID: {user.uid.slice(0, 8)}...)</p>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: COLORS.textPrimary }}>📱 Body & Nutrition Tracker</h1>
+            <p style={{ fontSize: '0.8rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>✅ Firebase Connected</p>
           </div>
 
-          <div style={{ padding: '1rem', paddingBottom: '100px' }}>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-              <input
-                type="text"
-                value={foodInput}
-                onChange={(e) => setFoodInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && logMeal()}
-                placeholder="Log a meal..."
-                style={{
-                  flex: 1,
-                  padding: '0.7rem',
-                  border: `1px solid ${COLORS.borderLight}`,
-                  borderRadius: '8px',
-                  fontSize: '0.9rem',
-                }}
-              />
-              <button
-                onClick={logMeal}
-                disabled={loading || !foodInput.trim()}
-                style={{
-                  padding: '0.7rem 1.2rem',
-                  background: COLORS.accentBlue,
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: '600',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.6 : 1,
-                }}
-              >
-                {loading ? '...' : 'Log'}
-              </button>
-            </div>
+          {activeTab === 'today' && (
+            <div style={{ padding: '1rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                <input type="text" value={foodInput} onChange={(e) => setFoodInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && logMeal()} placeholder="Log a meal..." style={{ flex: 1, padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '8px', fontSize: '0.9rem' }} />
+                <button onClick={logMeal} disabled={loading || !foodInput.trim()} style={{ padding: '0.7rem 1.2rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>
+                  {loading ? '...' : 'Log'}
+                </button>
+              </div>
 
-            {entries.length > 0 ? (
-              <div>
-                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>Meals ({entries.length})</h2>
-                {[...entries].reverse().map((e) => (
-                  <div key={e.id} style={{
-                    background: COLORS.surface,
-                    boxShadow: `0 1px 3px ${COLORS.shadowLight}`,
-                    borderRadius: '8px',
-                    padding: '1rem',
-                    marginBottom: '0.8rem',
-                  }}>
-                    <div style={{ fontWeight: '600', color: COLORS.textPrimary }}>{e.food}</div>
-                    <div style={{ fontSize: '0.85rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>
-                      {e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g
+              {entries.length > 0 ? (
+                <div>
+                  <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>Meals ({entries.length})</h2>
+                  {[...entries].reverse().map((e) => (
+                    <div key={e.id} style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '1rem', marginBottom: '0.8rem' }}>
+                      <div style={{ fontWeight: '600', color: COLORS.textPrimary }}>{e.food}</div>
+                      <div style={{ fontSize: '0.85rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>
+                        {e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: COLORS.textTertiary, marginTop: '0.3rem' }}>{e.timestamp}</div>
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: COLORS.textTertiary, marginTop: '0.3rem' }}>{e.time}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: COLORS.textTertiary }}>
-                <p>No meals logged yet</p>
-              </div>
-            )}
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '3rem 1rem', color: COLORS.textTertiary }}>
+                  No meals logged yet
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab !== 'today' && (
+            <div style={{ padding: '2rem', textAlign: 'center', color: COLORS.textSecondary }}>
+              <p>{activeTab === 'history' && 'History'}{activeTab === 'body' && 'Body Lab'}{activeTab === 'support' && 'Support'} - Coming soon</p>
+            </div>
+          )}
+
+          {/* Tab Navigation */}
+          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: COLORS.surface, borderTop: `1px solid ${COLORS.borderLight}`, display: 'flex', gap: '0.5rem', padding: '0.5rem' }}>
+            {['today', 'history', 'body', 'support'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: 1, padding: '0.6rem', background: activeTab === tab ? COLORS.accentBlue : 'transparent', color: activeTab === tab ? 'white' : COLORS.textSecondary, border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: activeTab === tab ? '600' : '500', fontSize: '0.75rem' }}>
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
       );
@@ -381,7 +291,6 @@
     // Root
     const Root = () => {
       const [user, setUser] = useState(null);
-
       return user ? <App user={user} /> : <LoginScreen onLoggedIn={setUser} />;
     };
 
