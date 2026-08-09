@@ -2,8 +2,22 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Body & Nutrition Tracker</title>
+
+  <!-- Installable as a home-screen app on iOS/Android (Safari: Share -> Add to Home Screen) -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#0071e3" />
+  <link rel="icon" href="./icon-32.png" sizes="32x32" type="image/png" />
+  <link rel="icon" href="./icon-16.png" sizes="16x16" type="image/png" />
+  <link rel="apple-touch-icon" href="./icon-180.png" />
+  <link rel="apple-touch-icon" sizes="167x167" href="./icon-167.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="./icon-152.png" />
+  <link rel="apple-touch-icon" sizes="120x120" href="./icon-120.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Nutrition" />
 
   <script type="importmap">
   {
@@ -1891,7 +1905,7 @@ Provide a brief friendly recap (3-4 sentences): how they did vs goals, what went
         style={{
           flex: 1,
           overflowY: 'auto',
-          paddingBottom: '70px',
+          paddingBottom: 'calc(70px + env(safe-area-inset-bottom))',
           WebkitOverflowScrolling: 'touch',
         }}
       >
@@ -3531,7 +3545,7 @@ Provide a brief friendly recap (3-4 sentences): how they did vs goals, what went
           borderTop: `1px solid ${COLORS.borderLight}`,
           display: 'flex',
           gap: '0.25rem',
-          padding: '0.4rem 0.5rem',
+          padding: '0.4rem 0.5rem calc(0.4rem + env(safe-area-inset-bottom))',
           boxShadow: '0 -2px 8px rgba(0,0,0,0.04)',
         }}
       >
