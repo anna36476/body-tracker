@@ -8,6 +8,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/recharts@2.10.0/dist/Recharts.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; }
@@ -16,14 +17,15 @@
 </head>
 <body>
   <div id="root"></div>
+
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
-    
+
     // Firebase config
     let firebaseUser = null;
     let firebaseIdToken = null;
     let projectId = null;
-    
+
     const FirebaseAPI = {
       async signIn(apiKey) {
         const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
@@ -56,16 +58,8 @@
         if (!res.ok) throw new Error('Load failed');
         return res.json();
       },
-
-      async delete(path) {
-        const url = `https://${projectId}-default-rtdb.firebaseio.com/${path}.json?auth=${firebaseIdToken}`;
-        const res = await fetch(url, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Delete failed');
-        return res.json();
-      },
     };
 
-    // Storage adapter for app
     const StorageAdapter = {
       async set(key, value) {
         try {
@@ -86,14 +80,6 @@
           return null;
         }
       },
-      async delete(key) {
-        try {
-          await FirebaseAPI.delete(`users/${firebaseUser.uid}/${key}`);
-          return { key, deleted: true };
-        } catch (e) {
-          return null;
-        }
-      },
     };
 
     const COLORS = {
@@ -109,10 +95,8 @@
       accentRed: '#ff3b30',
       borderLight: '#e5e5ea',
       shadowLight: 'rgba(0, 0, 0, 0.04)',
-      shadowMedium: 'rgba(0, 0, 0, 0.08)',
     };
 
-    // Login Screen
     const LoginScreen = ({ onLoggedIn }) => {
       const [creds, setCreds] = useState({
         apiKey: localStorage.getItem('fb_apiKey') || '',
@@ -168,13 +152,21 @@
       );
     };
 
-    // Main App (simplified version with key features)
     const App = ({ user }) => {
+      const [activeTab, setActiveTab] = useState('today');
       const [entries, setEntries] = useState([]);
       const [foodInput, setFoodInput] = useState('');
       const [loading, setLoading] = useState(false);
-      const [activeTab, setActiveTab] = useState('today');
+      const [photoPreviews, setPhotoPreviews] = useState([]);
       const [appLoading, setAppLoading] = useState(true);
+      const [bodyLog, setBodyLog] = useState([]);
+      const [bodyForm, setBodyForm] = useState({ weight: '', height: '', age: '', sex: 'female', activityLevel: 'moderate', goal: 'maintain', goalRate: 'moderate', muscleMass: '', bodyFat: '' });
+      const [nextMealSuggestion, setNextMealSuggestion] = useState('');
+      const [nextMealLoading, setNextMealLoading] = useState(false);
+      const [supportMessages, setSupportMessages] = useState([]);
+      const [supportInput, setSupportInput] = useState('');
+      const [supportLoading, setSupportLoading] = useState(false);
+      const photoInputRef = useRef(null);
 
       useEffect(() => {
         loadData();
@@ -182,45 +174,141 @@
 
       const loadData = async () => {
         try {
-          const data = await StorageAdapter.get('entries');
-          if (data) setEntries(JSON.parse(data.value));
+          const entriesData = await StorageAdapter.get('entries');
+          if (entriesData) setEntries(JSON.parse(entriesData.value));
+          const bodyData = await StorageAdapter.get('body-log');
+          if (bodyData) setBodyLog(JSON.parse(bodyData.value));
+          const mealsData = await StorageAdapter.get('next-meal');
+          if (mealsData) setNextMealSuggestion(mealsData.value);
         } catch (e) {
           console.error('Load error:', e);
         }
         setAppLoading(false);
       };
 
-      const logMeal = async () => {
-        if (!foodInput.trim()) return;
-        setLoading(true);
-
-        try {
-          const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-6',
-              max_tokens: 100,
-              messages: [{ role: 'user', content: `Estimate: "${foodInput}". Reply only: calories:X protein:Xg carbs:Xg fat:Xg` }],
-            }),
+      const handlePhotoSelect = (e) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = '';
+        if (!files.length) return;
+        const newPreviews = files.map(file => {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(file);
           });
+        });
+        Promise.all(newPreviews).then(previews => {
+          setPhotoPreviews(prev => [...prev, ...previews]);
+        });
+      };
 
-          const data = await response.json();
-          const text = data.content[0]?.text || '';
+      const removePhoto = (index) => {
+        setPhotoPreviews(photoPreviews.filter((_, i) => i !== index));
+      };
 
-          const entry = {
-            id: Date.now(),
-            food: foodInput,
-            calories: parseInt(text.match(/calories:(\d+)/)?.[1] || '0'),
-            protein: parseInt(text.match(/protein:(\d+)/)?.[1] || '0'),
-            carbs: parseInt(text.match(/carbs:(\d+)/)?.[1] || '0'),
-            fat: parseInt(text.match(/fat:(\d+)/)?.[1] || '0'),
-            timestamp: new Date().toLocaleString(),
-          };
-
-          const updated = [...entries, entry];
+      const logMeal = async () => {
+        const noteText = foodInput.trim();
+        const hasPhotos = photoPreviews.length > 0;
+        const hasText = noteText.length > 0;
+        if (!hasPhotos && !hasText) return;
+        setLoading(true);
+        try {
+          const newEntries = [];
+          if (hasPhotos) {
+            for (const photoPreview of photoPreviews) {
+              const notePart = hasText ? ` The person also added this note: "${noteText}". Use the note together with the photo.` : '';
+              const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  model: 'claude-sonnet-4-6',
+                  max_tokens: 150,
+                  messages: [{
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'image',
+                        source: {
+                          type: 'base64',
+                          media_type: 'image/jpeg',
+                          data: photoPreview.split(',')[1],
+                        },
+                      },
+                      {
+                        type: 'text',
+                        text: `Analyze this meal photo.${notePart} Reply ONLY:
+description:<3-6 word description>
+calories:XXX | protein:XXg | carbs:XXg | fat:XXg
+good:<one positive thing>
+bad:<one area to improve>`,
+                      },
+                    ],
+                  }],
+                }),
+              });
+              const data = await response.json();
+              const text = data.content[0]?.text || '';
+              const descriptionMatch = text.match(/description:\s*(.*)/i);
+              const calorieMatch = text.match(/calories:(\d+)/);
+              const proteinMatch = text.match(/protein:(\d+)g/);
+              const carbsMatch = text.match(/carbs:(\d+)g/);
+              const fatMatch = text.match(/fat:(\d+)g/);
+              const goodMatch = text.match(/good:\s*(.*)/i);
+              const badMatch = text.match(/bad:\s*(.*)/i);
+              const description = descriptionMatch?.[1]?.trim() || 'Logged meal';
+              newEntries.push({
+                id: Date.now() + Math.random(),
+                food: description,
+                image: photoPreview,
+                calories: parseInt(calorieMatch?.[1] || '0', 10),
+                protein: parseInt(proteinMatch?.[1] || '0', 10),
+                carbs: parseInt(carbsMatch?.[1] || '0', 10),
+                fat: parseInt(fatMatch?.[1] || '0', 10),
+                mealGood: goodMatch?.[1]?.trim() || '',
+                mealBad: badMatch?.[1]?.trim() || '',
+                timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              });
+            }
+          } else {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: 'claude-sonnet-4-6',
+                max_tokens: 150,
+                messages: [{
+                  role: 'user',
+                  content: `Estimate: "${noteText}". Reply ONLY:
+calories:XXX | protein:XXg | carbs:XXg | fat:XXg
+good:<positive>
+bad:<improve>`,
+                }],
+              }),
+            });
+            const data = await response.json();
+            const text = data.content[0]?.text || '';
+            const calorieMatch = text.match(/calories:(\d+)/);
+            const proteinMatch = text.match(/protein:(\d+)g/);
+            const carbsMatch = text.match(/carbs:(\d+)g/);
+            const fatMatch = text.match(/fat:(\d+)g/);
+            const goodMatch = text.match(/good:\s*(.*)/i);
+            const badMatch = text.match(/bad:\s*(.*)/i);
+            newEntries.push({
+              id: Date.now(),
+              food: noteText,
+              calories: parseInt(calorieMatch?.[1] || '0', 10),
+              protein: parseInt(proteinMatch?.[1] || '0', 10),
+              carbs: parseInt(carbsMatch?.[1] || '0', 10),
+              fat: parseInt(fatMatch?.[1] || '0', 10),
+              mealGood: goodMatch?.[1]?.trim() || '',
+              mealBad: badMatch?.[1]?.trim() || '',
+              timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            });
+          }
+          const updated = [...entries, ...newEntries];
           setEntries(updated);
           setFoodInput('');
+          setPhotoPreviews([]);
           await StorageAdapter.set('entries', JSON.stringify(updated));
         } catch (error) {
           console.error('Error:', error);
@@ -229,57 +317,229 @@
         setLoading(false);
       };
 
+      const generateNextMeal = async () => {
+        setNextMealLoading(true);
+        try {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 150,
+              messages: [{
+                role: 'user',
+                content: `Suggest a next meal that's balanced and healthy. Reply ONLY:
+MEAL: <name>
+MACROS: <target macros>
+PREP: <quick prep time>
+WHY: <why this is good>`,
+              }],
+            }),
+          });
+          const data = await response.json();
+          const text = data.content[0]?.text || '';
+          setNextMealSuggestion(text);
+          await StorageAdapter.set('next-meal', text);
+        } catch (e) {
+          console.error('Error:', e);
+        }
+        setNextMealLoading(false);
+      };
+
+      const saveBodyEntry = async () => {
+        if (!bodyForm.weight) { alert('Weight is required'); return; }
+        try {
+          const entry = { id: Date.now(), ...bodyForm, timestamp: new Date().toLocaleString() };
+          const updated = [...bodyLog, entry];
+          setBodyLog(updated);
+          setBodyForm({ weight: '', height: '', age: '', sex: 'female', activityLevel: 'moderate', goal: 'maintain', goalRate: 'moderate', muscleMass: '', bodyFat: '' });
+          await StorageAdapter.set('body-log', JSON.stringify(updated));
+        } catch (e) {
+          console.error('Error:', e);
+          alert('Error saving');
+        }
+      };
+
+      const sendSupport = async () => {
+        if (!supportInput.trim()) return;
+        setSupportLoading(true);
+        try {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 200,
+              messages: [{
+                role: 'user',
+                content: `User asking about nutrition/fitness: "${supportInput}". Provide helpful, friendly advice.`,
+              }],
+            }),
+          });
+          const data = await response.json();
+          const reply = data.content[0]?.text || '';
+          const newMessages = [...supportMessages, { user: supportInput, assistant: reply }];
+          setSupportMessages(newMessages);
+          setSupportInput('');
+          await StorageAdapter.set('support-messages', JSON.stringify(newMessages));
+        } catch (e) {
+          console.error('Error:', e);
+        }
+        setSupportLoading(false);
+      };
+
       if (appLoading) {
         return <div style={{ minHeight: '100vh', background: COLORS.background, display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLORS.textSecondary }}>Loading...</div>;
       }
 
       return (
-        <div style={{ minHeight: '100vh', background: COLORS.background, paddingBottom: '70px' }}>
+        <div style={{ minHeight: '100vh', background: COLORS.background, paddingBottom: '80px' }}>
           <div style={{ padding: '1rem', borderBottom: `1px solid ${COLORS.borderLight}`, background: COLORS.surface }}>
             <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: COLORS.textPrimary }}>📱 Body & Nutrition Tracker</h1>
             <p style={{ fontSize: '0.8rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>✅ Firebase Connected</p>
           </div>
 
-          {activeTab === 'today' && (
-            <div style={{ padding: '1rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-                <input type="text" value={foodInput} onChange={(e) => setFoodInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && logMeal()} placeholder="Log a meal..." style={{ flex: 1, padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '8px', fontSize: '0.9rem' }} />
-                <button onClick={logMeal} disabled={loading || !foodInput.trim()} style={{ padding: '0.7rem 1.2rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>
-                  {loading ? '...' : 'Log'}
-                </button>
-              </div>
+          <div style={{ padding: '1rem' }}>
+            {activeTab === 'today' && (
+              <div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                  <input type="text" value={foodInput} onChange={(e) => setFoodInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && logMeal()} placeholder="Log a meal..." style={{ flex: 1, padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '8px', fontSize: '0.9rem' }} />
+                  <button onClick={logMeal} disabled={loading || (!foodInput.trim() && !photoPreviews.length)} style={{ padding: '0.7rem 1.2rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>
+                    {loading ? '...' : 'Log'}
+                  </button>
+                </div>
 
-              {entries.length > 0 ? (
-                <div>
-                  <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>Meals ({entries.length})</h2>
-                  {[...entries].reverse().map((e) => (
-                    <div key={e.id} style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '1rem', marginBottom: '0.8rem' }}>
-                      <div style={{ fontWeight: '600', color: COLORS.textPrimary }}>{e.food}</div>
-                      <div style={{ fontSize: '0.85rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>
-                        {e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g
+                {photoPreviews.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    {photoPreviews.map((preview, idx) => (
+                      <div key={idx} style={{ position: 'relative', width: '50px', height: '50px' }}>
+                        <img src={preview} alt="" style={{ width: '50px', height: '50px', borderRadius: '6px', objectFit: 'cover' }} />
+                        <button onClick={() => removePhoto(idx)} style={{ position: 'absolute', top: '-8px', right: '-8px', width: '20px', height: '20px', borderRadius: '50%', background: COLORS.accentRed, color: 'white', border: 'none', cursor: 'pointer', fontSize: '12px' }}>×</button>
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: COLORS.textTertiary, marginTop: '0.3rem' }}>{e.timestamp}</div>
+                    ))}
+                  </div>
+                )}
+
+                <input ref={photoInputRef} type="file" accept="image/*" multiple onChange={handlePhotoSelect} style={{ display: 'none' }} />
+                <button onClick={() => photoInputRef.current?.click()} style={{ marginBottom: '1rem', padding: '0.6rem 1rem', background: COLORS.surfaceSecondary, border: `1px solid ${COLORS.borderLight}`, borderRadius: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>📷 Add Photos</button>
+
+                {entries.length > 0 ? (
+                  <div>
+                    <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>Meals ({entries.length})</h2>
+                    {[...entries].reverse().map((e) => (
+                      <div key={e.id} style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '1rem', marginBottom: '0.8rem' }}>
+                        {e.image && <img src={e.image} alt="" style={{ width: '100%', height: '150px', borderRadius: '6px', objectFit: 'cover', marginBottom: '0.5rem' }} />}
+                        <div style={{ fontWeight: '600', color: COLORS.textPrimary }}>{e.food}</div>
+                        <div style={{ fontSize: '0.85rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>
+                          {e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g
+                        </div>
+                        {e.mealGood && <div style={{ fontSize: '0.75rem', color: COLORS.accentGreen, marginTop: '0.3rem' }}>✓ {e.mealGood}</div>}
+                        {e.mealBad && <div style={{ fontSize: '0.75rem', color: COLORS.accentRed, marginTop: '0.2rem' }}>⚠ {e.mealBad}</div>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '3rem 1rem', color: COLORS.textTertiary }}>No meals logged yet</div>
+                )}
+
+                <div style={{ marginTop: '2rem', background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '1rem' }}>
+                  <h3 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textPrimary, marginBottom: '0.5rem' }}>💡 Perfect Next Meal</h3>
+                  {nextMealSuggestion ? (
+                    <pre style={{ fontSize: '0.75rem', color: COLORS.textSecondary, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{nextMealSuggestion}</pre>
+                  ) : (
+                    <p style={{ fontSize: '0.85rem', color: COLORS.textTertiary }}>No suggestion yet</p>
+                  )}
+                  <button onClick={generateNextMeal} disabled={nextMealLoading} style={{ marginTop: '0.5rem', padding: '0.5rem 1rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.75rem', cursor: nextMealLoading ? 'not-allowed' : 'pointer' }}>
+                    {nextMealLoading ? 'Generating...' : 'Generate Suggestion'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'body' && (
+              <div>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>Body Composition</h2>
+                <div style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.3rem' }}>Weight (kg)</label>
+                      <input type="number" value={bodyForm.weight} onChange={(e) => setBodyForm({ ...bodyForm, weight: e.target.value })} style={{ width: '100%', padding: '0.5rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px' }} />
                     </div>
-                  ))}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.3rem' }}>Height (cm)</label>
+                      <input type="number" value={bodyForm.height} onChange={(e) => setBodyForm({ ...bodyForm, height: e.target.value })} style={{ width: '100%', padding: '0.5rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.3rem' }}>Muscle Mass (kg)</label>
+                      <input type="number" value={bodyForm.muscleMass} onChange={(e) => setBodyForm({ ...bodyForm, muscleMass: e.target.value })} style={{ width: '100%', padding: '0.5rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.3rem' }}>Body Fat (%)</label>
+                      <input type="number" value={bodyForm.bodyFat} onChange={(e) => setBodyForm({ ...bodyForm, bodyFat: e.target.value })} style={{ width: '100%', padding: '0.5rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px' }} />
+                    </div>
+                  </div>
+                  <button onClick={saveBodyEntry} style={{ width: '100%', padding: '0.6rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>Save Entry</button>
                 </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: '3rem 1rem', color: COLORS.textTertiary }}>
-                  No meals logged yet
+                {bodyLog.length > 0 && (
+                  <div>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '0.8rem' }}>History ({bodyLog.length})</h3>
+                    {[...bodyLog].reverse().map((entry) => (
+                      <div key={entry.id} style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '0.75rem', marginBottom: '0.6rem', fontSize: '0.8rem' }}>
+                        <div style={{ fontWeight: '600', color: COLORS.textPrimary }}>{entry.weight}kg {entry.height ? `• ${entry.height}cm` : ''}</div>
+                        <div style={{ color: COLORS.textSecondary, marginTop: '0.2rem' }}>{entry.timestamp}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'support' && (
+              <div>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>💬 Support Chat</h2>
+                <div style={{ height: '300px', overflow: 'auto', background: COLORS.surface, borderRadius: '8px', padding: '1rem', marginBottom: '1rem', boxShadow: `0 1px 3px ${COLORS.shadowLight}` }}>
+                  {supportMessages.length === 0 ? (
+                    <p style={{ color: COLORS.textTertiary, fontSize: '0.85rem' }}>No messages yet</p>
+                  ) : (
+                    supportMessages.map((msg, idx) => (
+                      <div key={idx} style={{ marginBottom: '1rem' }}>
+                        <div style={{ background: COLORS.accentBlue, color: 'white', padding: '0.5rem', borderRadius: '6px', marginBottom: '0.3rem', fontSize: '0.8rem' }}>{msg.user}</div>
+                        <div style={{ background: COLORS.surfaceSecondary, padding: '0.5rem', borderRadius: '6px', fontSize: '0.8rem', color: COLORS.textSecondary }}>{msg.assistant}</div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input type="text" value={supportInput} onChange={(e) => setSupportInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendSupport()} placeholder="Ask a question..." style={{ flex: 1, padding: '0.6rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px' }} />
+                  <button onClick={sendSupport} disabled={supportLoading || !supportInput.trim()} style={{ padding: '0.6rem 1rem', background: COLORS.accentBlue, color: 'white', border: 'none', borderRadius: '6px', cursor: supportLoading ? 'not-allowed' : 'pointer' }}>
+                    {supportLoading ? '...' : 'Send'}
+                  </button>
+                </div>
+              </div>
+            )}
 
-          {activeTab !== 'today' && (
-            <div style={{ padding: '2rem', textAlign: 'center', color: COLORS.textSecondary }}>
-              <p>{activeTab === 'history' && 'History'}{activeTab === 'body' && 'Body Lab'}{activeTab === 'support' && 'Support'} - Coming soon</p>
-            </div>
-          )}
+            {activeTab === 'history' && (
+              <div>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>📋 Meal History</h2>
+                {entries.length > 0 ? (
+                  <div>
+                    {[...entries].reverse().map((e) => (
+                      <div key={e.id} style={{ background: COLORS.surface, boxShadow: `0 1px 3px ${COLORS.shadowLight}`, borderRadius: '8px', padding: '0.75rem', marginBottom: '0.6rem' }}>
+                        <div style={{ fontWeight: '600', color: COLORS.textPrimary, fontSize: '0.9rem' }}>{e.food}</div>
+                        <div style={{ fontSize: '0.8rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>{e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: COLORS.textTertiary }}>No meal history</div>
+                )}
+              </div>
+            )}
+          </div>
 
-          {/* Tab Navigation */}
           <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: COLORS.surface, borderTop: `1px solid ${COLORS.borderLight}`, display: 'flex', gap: '0.5rem', padding: '0.5rem' }}>
             {['today', 'history', 'body', 'support'].map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: 1, padding: '0.6rem', background: activeTab === tab ? COLORS.accentBlue : 'transparent', color: activeTab === tab ? 'white' : COLORS.textSecondary, border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: activeTab === tab ? '600' : '500', fontSize: '0.75rem' }}>
+              <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: 1, padding: '0.6rem', background: activeTab === tab ? COLORS.accentBlue : 'transparent', color: activeTab === tab ? 'white' : COLORS.textSecondary, border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: activeTab === tab ? '600' : '500', fontSize: '0.7rem' }}>
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
@@ -288,7 +548,6 @@
       );
     };
 
-    // Root
     const Root = () => {
       const [user, setUser] = useState(null);
       return user ? <App user={user} /> : <LoginScreen onLoggedIn={setUser} />;
