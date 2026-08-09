@@ -1058,7 +1058,7 @@ const CalorieTracker = ({ onSignOut, userEmail }) => {
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 200,
           thinking: { type: 'disabled' },
           messages: [
@@ -1188,7 +1188,7 @@ Use everyday language, no BMI/cal/protein jargon. Be honest but supportive. Each
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 200,
           thinking: { type: 'disabled' },
           messages: [
@@ -1287,7 +1287,7 @@ ${goalLabel ? `- Goal: ${goalLabel}` : ''}`;
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 200,
           thinking: { type: 'disabled' },
           system: systemPrompt,
@@ -1437,7 +1437,7 @@ ${goalLabel ? `- Goal: ${goalLabel}` : ''}`;
             method: 'POST',
             headers: anthropicHeaders(),
             body: JSON.stringify({
-              model: 'claude-sonnet-5',
+              model: 'claude-haiku-4-5',
               max_tokens: 150,
               thinking: { type: 'disabled' },
               messages: [
@@ -1501,7 +1501,7 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
           method: 'POST',
           headers: anthropicHeaders(),
           body: JSON.stringify({
-            model: 'claude-sonnet-5',
+            model: 'claude-haiku-4-5',
             max_tokens: 150,
             thinking: { type: 'disabled' },
             messages: [
@@ -1546,8 +1546,9 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
       setEntries(updated);
       setFoodInput('');
       setPhotoPreviews([]);
-      generateDaySummary(updated);
-      generateNextMealSuggestion(updated);
+      // Day summary and next-meal suggestion are no longer auto-generated on
+      // every log (each is its own paid API call) -- see the "Analyze" /
+      // "Suggest a meal" buttons below, which call these on demand instead.
     } catch (error) {
       console.error('Error logging meal:', error);
       setPhotoError('Could not log this meal. Please try again.');
@@ -1566,7 +1567,7 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 150,
           thinking: { type: 'disabled' },
           messages: [
@@ -1647,7 +1648,7 @@ bad:<one short, specific, honest thing that's not ideal about this meal — a re
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 120,
           thinking: { type: 'disabled' },
           messages: [
@@ -1689,7 +1690,7 @@ NEXT: <one short clause on what to focus on next>`,
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 180,
           thinking: { type: 'disabled' },
           messages: [
@@ -1733,7 +1734,7 @@ WHY: <one short sentence on why this fits>`,
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 180,
           thinking: { type: 'disabled' },
           messages: [
@@ -1772,7 +1773,7 @@ WHY: <one short sentence on why this fits>`,
         method: 'POST',
         headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: 'claude-sonnet-5',
+          model: 'claude-haiku-4-5',
           max_tokens: 200,
           thinking: { type: 'disabled' },
           messages: [
@@ -1802,13 +1803,11 @@ Provide a brief friendly recap (3-4 sentences): how they did vs goals, what went
   const deleteEntry = (id) => {
     const updated = entries.filter((e) => e.id !== id);
     setEntries(updated);
-    if (updated.length > 0) {
-      generateDaySummary(updated);
-      generateNextMealSuggestion(updated);
-    } else {
-      setDaySummary('');
-      setNextMealSuggestion('');
-    }
+    // Any existing summary/suggestion was based on the old entry list, so
+    // clear it rather than paying for a fresh regeneration -- the "Analyze"
+    // / "Suggest a meal" buttons let the user pull an updated one on demand.
+    setDaySummary('');
+    setNextMealSuggestion('');
   };
 
   const deleteHistoryEntry = async (date, id) => {
@@ -2295,19 +2294,22 @@ Provide a brief friendly recap (3-4 sentences): how they did vs goals, what went
                         const parsedMeal = parseNextMeal(nextMealSuggestion);
                         if (!parsedMeal) {
                           return (
-                            <div
+                            <button
+                              onClick={() => generateNextMealSuggestion(entries)}
                               style={{
-                                background: COLORS.surface,
-        boxShadow: `0 1px 3px ${COLORS.shadowLight}`,
-                                borderRadius: '12px',
+                                width: '100%',
                                 padding: '1rem',
-                                textAlign: 'center',
-                                color: COLORS.textTertiary,
-                                fontSize: '0.8rem',
+                                background: COLORS.surface,
+                                border: `1px dashed ${COLORS.borderLight}`,
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                color: COLORS.textSecondary,
+                                fontSize: '0.85rem',
+                                fontWeight: '500',
                               }}
                             >
-                              Log your meals to get a recommendation.
-                            </div>
+                              Get a meal recommendation
+                            </button>
                           );
                         }
                         return (
@@ -2549,19 +2551,22 @@ Provide a brief friendly recap (3-4 sentences): how they did vs goals, what went
                       {renderBold(daySummary)}
                     </div>
                   ) : (
-                    <div
+                    <button
+                      onClick={() => generateDaySummary(entries)}
                       style={{
-                        background: COLORS.surface,
-        boxShadow: `0 1px 3px ${COLORS.shadowLight}`,
+                        width: '100%',
+                        padding: '0.75rem',
+                        background: COLORS.surfaceSecondary,
+                        border: `1px dashed ${COLORS.borderLight}`,
                         borderRadius: '12px',
-                        padding: '1rem',
-                        textAlign: 'center',
-                        color: COLORS.textTertiary,
-                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        color: COLORS.textSecondary,
+                        fontSize: '0.85rem',
+                        fontWeight: '500',
                       }}
                     >
-                      Log a meal to get analysis.
-                    </div>
+                      Analyze today's meals
+                    </button>
                   )}
                 </div>
               )}
