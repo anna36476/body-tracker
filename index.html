@@ -5,31 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Body & Nutrition Tracker</title>
   
-  <!-- React & ReactDOM -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/recharts@2.10.0/dist/Recharts.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
-  <!-- Firebase SDKs - Load FIRST -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js"></script>
+  <script async src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+  <script async src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js"></script>
+  <script async src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js"></script>
   
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f7;
-    }
-    #root {
-      width: 100%;
-      min-height: 100vh;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; }
+    #root { width: 100%; min-height: 100vh; }
   </style>
 </head>
 <body>
@@ -41,24 +27,19 @@
     const COLORS = {
       background: '#f5f5f7',
       surface: '#ffffff',
-      surfaceSecondary: '#f9f9fb',
       textPrimary: '#1d1d1d',
       textSecondary: '#86868b',
       textTertiary: '#a1a1a6',
       accentBlue: '#0071e3',
-      accentGreen: '#34c759',
-      accentOrange: '#ff9500',
       accentRed: '#ff3b30',
       borderLight: '#e5e5ea',
       shadowLight: 'rgba(0, 0, 0, 0.04)',
     };
 
-    // Global state
     let db = null;
     let auth = null;
     let currentUser = null;
 
-    // Storage adapter with hybrid Firebase + localStorage
     const StorageAdapter = {
       async set(key, value, shared = false) {
         try {
@@ -69,8 +50,8 @@
             await db.ref(path).set(value);
           }
           return { key, value, shared };
-        } catch (error) {
-          console.error('Storage.set error:', error);
+        } catch (e) {
+          console.error('Storage error:', e);
           return null;
         }
       },
@@ -80,21 +61,18 @@
           if (currentUser && db) {
             const uid = currentUser.uid;
             const path = shared ? `shared/${key}` : `users/${uid}/${key}`;
-            const snapshot = await db.ref(path).get();
-            const value = snapshot.val();
-            if (value !== null) {
-              localStorage.setItem(`local_${key}`, value);
-              return { key, value, shared };
+            const snap = await db.ref(path).get();
+            const val = snap.val();
+            if (val !== null) {
+              localStorage.setItem(`local_${key}`, val);
+              return { key, value: val, shared };
             }
           }
           const cached = localStorage.getItem(`local_${key}`);
-          if (cached) return { key, value: cached, shared };
-          return null;
-        } catch (error) {
-          console.error('Storage.get error:', error);
+          return cached ? { key, value: cached, shared } : null;
+        } catch (e) {
           const cached = localStorage.getItem(`local_${key}`);
-          if (cached) return { key, value: cached, shared };
-          return null;
+          return cached ? { key, value: cached, shared } : null;
         }
       },
 
@@ -107,30 +85,15 @@
             await db.ref(path).remove();
           }
           return { key, deleted: true };
-        } catch (error) {
-          console.error('Storage.delete error:', error);
+        } catch (e) {
           return null;
         }
       },
-
-      async list(prefix = '', shared = false) {
-        try {
-          const keys = Object.keys(localStorage)
-            .filter(k => k.startsWith(`local_${prefix}`))
-            .map(k => k.replace('local_', ''));
-          return { keys, prefix, shared };
-        } catch (error) {
-          console.error('Storage.list error:', error);
-          return null;
-        }
-      }
     };
 
-    // ============================================
-    // LOGIN COMPONENT
-    // ============================================
-    const LoginScreen = ({ onLoggedIn }) => {
-      const [credentials, setCredentials] = useState({
+    // Login Screen
+    const LoginScreen = ({ onLoggedIn, firebaseReady }) => {
+      const [creds, setCreds] = useState({
         apiKey: localStorage.getItem('fb_apiKey') || '',
         authDomain: localStorage.getItem('fb_authDomain') || '',
         projectId: localStorage.getItem('fb_projectId') || '',
@@ -141,117 +104,64 @@
       const [status, setStatus] = useState('');
       const [connecting, setConnecting] = useState(false);
 
-      useEffect(() => {
-        // Check if Firebase is loaded
-        if (!window.firebase) {
-          setStatus('⏳ Loading Firebase SDK...');
-          const timeout = setTimeout(() => {
-            if (!window.firebase) {
-              setStatus('❌ Firebase SDK failed to load');
-            }
-          }, 5000);
-          return () => clearTimeout(timeout);
-        }
-      }, []);
-
       const handleConnect = async () => {
-        if (!credentials.projectId) {
-          setStatus('❌ Project ID is required');
+        if (!creds.projectId) {
+          setStatus('❌ Project ID required');
           return;
         }
-
-        if (!window.firebase) {
-          setStatus('❌ Firebase SDK not loaded. Refresh page and try again.');
+        if (!firebaseReady) {
+          setStatus('❌ Firebase SDK not ready');
           return;
         }
 
         setConnecting(true);
-        setStatus('Initializing Firebase...');
+        setStatus('Connecting...');
 
         try {
-          // Save credentials
-          Object.keys(credentials).forEach(key => {
-            localStorage.setItem(`fb_${key}`, credentials[key]);
-          });
+          Object.keys(creds).forEach(k => localStorage.setItem(`fb_${k}`, creds[k]));
 
-          // Build Firebase config
-          const firebaseConfig = {
-            apiKey: credentials.apiKey,
-            authDomain: credentials.authDomain,
-            projectId: credentials.projectId,
-            storageBucket: credentials.storageBucket,
-            messagingSenderId: credentials.messagingSenderId,
-            appId: credentials.appId,
-            databaseURL: `https://${credentials.projectId}-default-rtdb.firebaseio.com`,
+          const config = {
+            apiKey: creds.apiKey,
+            authDomain: creds.authDomain,
+            projectId: creds.projectId,
+            storageBucket: creds.storageBucket,
+            messagingSenderId: creds.messagingSenderId,
+            appId: creds.appId,
+            databaseURL: `https://${creds.projectId}-default-rtdb.firebaseio.com`,
           };
 
-          // Initialize app
-          const app = firebase.initializeApp(firebaseConfig, 'tracker-' + Date.now());
+          const app = firebase.initializeApp(config, 'app-' + Date.now());
           db = firebase.database(app);
           auth = firebase.auth(app);
 
-          setStatus('Signing in...');
-
-          // Sign in anonymously
           const result = await auth.signInAnonymously();
           currentUser = result.user;
 
           setStatus('✅ Connected!');
           setTimeout(() => onLoggedIn(currentUser), 500);
         } catch (err) {
-          console.error('Firebase error:', err);
-          let errorMsg = err.message || 'Failed to connect';
-          if (errorMsg.includes('Invalid API Key')) {
-            errorMsg = 'Invalid API Key - check your Firebase credentials';
-          } else if (errorMsg.includes('auth/operation-not-allowed')) {
-            errorMsg = 'Anonymous auth not enabled in Firebase';
-          }
-          setStatus(`❌ ${errorMsg}`);
+          console.error('Error:', err);
+          setStatus(`❌ ${err.message || 'Connection failed'}`);
           setConnecting(false);
         }
       };
 
       return (
-        <div style={{
-          minHeight: '100vh',
-          background: COLORS.background,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1rem',
-        }}>
-          <div style={{
-            background: COLORS.surface,
-            borderRadius: '16px',
-            padding: '2rem',
-            maxWidth: '500px',
-            width: '100%',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
-          }}>
-            <h1 style={{ marginBottom: '0.5rem', fontSize: '2rem', color: COLORS.textPrimary }}>
-              📱 Body Tracker
-            </h1>
+        <div style={{ minHeight: '100vh', background: COLORS.background, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ background: COLORS.surface, borderRadius: '16px', padding: '2rem', maxWidth: '500px', width: '100%', boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
+            <h1 style={{ marginBottom: '0.5rem', fontSize: '2rem', color: COLORS.textPrimary }}>📱 Body Tracker</h1>
             <p style={{ color: COLORS.textSecondary, marginBottom: '2rem' }}>Firebase Setup</p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
-              {['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'].map(key => (
-                <div key={key}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem', color: COLORS.textPrimary }}>
-                    {key}
-                  </label>
+              {['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'].map(k => (
+                <div key={k}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem', color: COLORS.textPrimary }}>{k}</label>
                   <input
                     type="text"
-                    value={credentials[key]}
-                    onChange={(e) => setCredentials({ ...credentials, [key]: e.target.value })}
-                    placeholder={key}
-                    style={{
-                      width: '100%',
-                      padding: '0.7rem',
-                      border: `1px solid ${COLORS.borderLight}`,
-                      borderRadius: '6px',
-                      fontSize: '0.8rem',
-                      fontFamily: 'monospace',
-                    }}
+                    value={creds[k]}
+                    onChange={(e) => setCreds({ ...creds, [k]: e.target.value })}
+                    placeholder={k}
+                    style={{ width: '100%', padding: '0.7rem', border: `1px solid ${COLORS.borderLight}`, borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'monospace' }}
                   />
                 </div>
               ))}
@@ -259,7 +169,7 @@
 
             <button
               onClick={handleConnect}
-              disabled={connecting || !credentials.projectId || !window.firebase}
+              disabled={connecting || !creds.projectId || !firebaseReady}
               style={{
                 width: '100%',
                 padding: '0.8rem',
@@ -268,9 +178,8 @@
                 border: 'none',
                 borderRadius: '8px',
                 fontWeight: '600',
-                fontSize: '1rem',
-                cursor: connecting || !credentials.projectId ? 'not-allowed' : 'pointer',
-                opacity: connecting || !credentials.projectId || !window.firebase ? 0.6 : 1,
+                cursor: connecting ? 'not-allowed' : 'pointer',
+                opacity: connecting || !firebaseReady ? 0.6 : 1,
               }}
             >
               {connecting ? 'Connecting...' : 'Connect Firebase'}
@@ -278,273 +187,175 @@
 
             {status && (
               <div style={{
-                marginTop: '1.5rem',
-                padding: '1rem',
-                background: status.includes('✅') ? '#f0f9ff' : status.includes('⏳') ? '#fffbf0' : '#fef2f2',
-                borderRadius: '8px',
+                marginTop: '1rem',
+                padding: '0.75rem',
+                background: status.includes('✅') ? '#f0f9ff' : '#fef2f2',
+                borderRadius: '6px',
                 fontSize: '0.9rem',
-                color: status.includes('✅') ? COLORS.accentBlue : status.includes('⏳') ? '#f4a957' : COLORS.accentRed,
-                wordBreak: 'break-word',
+                color: status.includes('✅') ? COLORS.accentBlue : COLORS.accentRed,
               }}>
                 {status}
               </div>
             )}
 
-            <div style={{
-              marginTop: '2rem',
-              padding: '1rem',
-              background: COLORS.surfaceSecondary,
-              borderRadius: '8px',
-              fontSize: '0.75rem',
-              color: COLORS.textSecondary,
-              lineHeight: '1.6',
-            }}>
-              <strong>Quick Setup Checklist:</strong>
-              <ul style={{ marginLeft: '1rem', marginTop: '0.5rem' }}>
-                <li>✅ Create Firebase project</li>
-                <li>✅ Enable Anonymous Authentication</li>
-                <li>✅ Create Realtime Database (Test mode)</li>
-                <li>✅ Copy config from Settings → Your apps</li>
-              </ul>
-            </div>
+            {!firebaseReady && (
+              <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#fffbf0', borderRadius: '6px', fontSize: '0.85rem', color: '#f4a957' }}>
+                ⏳ Loading Firebase...
+              </div>
+            )}
           </div>
         </div>
       );
     };
 
-    // ============================================
-    // MAIN APP
-    // ============================================
-    const AppContent = ({ user }) => {
+    // App
+    const App = ({ user }) => {
       const [entries, setEntries] = useState([]);
-      const [activeTab, setActiveTab] = useState('today');
       const [foodInput, setFoodInput] = useState('');
       const [loading, setLoading] = useState(false);
 
       useEffect(() => {
-        loadData();
+        const data = localStorage.getItem('local_entries');
+        if (data) setEntries(JSON.parse(data));
       }, []);
-
-      const loadData = async () => {
-        try {
-          const data = await StorageAdapter.get('entries', false);
-          if (data) {
-            setEntries(JSON.parse(data.value));
-          }
-        } catch (e) {
-          console.error('Load error:', e);
-        }
-      };
 
       const logMeal = async () => {
         if (!foodInput.trim()) return;
-
         setLoading(true);
+
         try {
-          const response = await fetch('https://api.anthropic.com/v1/messages', {
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               model: 'claude-sonnet-4-6',
               max_tokens: 100,
-              messages: [{
-                role: 'user',
-                content: `Estimate: "${foodInput}". Reply: calories:X protein:Xg carbs:Xg fat:Xg`,
-              }],
+              messages: [{ role: 'user', content: `Estimate calories for: "${foodInput}". Reply: calories:X protein:Xg carbs:Xg fat:Xg` }],
             }),
           });
 
-          const data = await response.json();
+          const data = await res.json();
           const text = data.content[0]?.text || '';
 
-          const newEntry = {
+          const entry = {
             id: Date.now(),
             food: foodInput,
             calories: parseInt(text.match(/calories:(\d+)/)?.[1] || '0'),
             protein: parseInt(text.match(/protein:(\d+)/)?.[1] || '0'),
             carbs: parseInt(text.match(/carbs:(\d+)/)?.[1] || '0'),
             fat: parseInt(text.match(/fat:(\d+)/)?.[1] || '0'),
-            timestamp: new Date().toLocaleString(),
+            time: new Date().toLocaleString(),
           };
 
-          const updated = [...entries, newEntry];
+          const updated = [...entries, entry];
           setEntries(updated);
           setFoodInput('');
-
+          localStorage.setItem('local_entries', JSON.stringify(updated));
           await StorageAdapter.set('entries', JSON.stringify(updated), false);
-        } catch (error) {
-          console.error('Error:', error);
-          alert('Failed to log meal. Check console for details.');
+        } catch (e) {
+          alert('Error logging meal: ' + e.message);
         }
         setLoading(false);
       };
 
       return (
-        <div style={{
-          minHeight: '100vh',
-          background: COLORS.background,
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '70px' }}>
-            <div style={{
-              padding: '1rem',
-              borderBottom: `1px solid ${COLORS.borderLight}`,
-              background: COLORS.surface,
-            }}>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: COLORS.textPrimary }}>
-                📱 Body & Nutrition Tracker
-              </h1>
-              <p style={{ fontSize: '0.8rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>
-                ✅ Connected to Firebase (UID: {user?.uid?.slice(0, 8)}...)
-              </p>
-            </div>
-
-            {activeTab === 'today' && (
-              <div style={{ padding: '1rem' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                  <input
-                    type="text"
-                    value={foodInput}
-                    onChange={(e) => setFoodInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && logMeal()}
-                    placeholder="Log a meal (e.g., chicken with rice)..."
-                    style={{
-                      flex: 1,
-                      padding: '0.7rem',
-                      border: `1px solid ${COLORS.borderLight}`,
-                      borderRadius: '8px',
-                      fontSize: '0.9rem',
-                    }}
-                  />
-                  <button
-                    onClick={logMeal}
-                    disabled={loading || !foodInput.trim()}
-                    style={{
-                      padding: '0.7rem 1.2rem',
-                      background: COLORS.accentBlue,
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontWeight: '600',
-                      cursor: loading ? 'not-allowed' : 'pointer',
-                      opacity: loading ? 0.6 : 1,
-                    }}
-                  >
-                    {loading ? '...' : 'Log'}
-                  </button>
-                </div>
-
-                {entries.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                    <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary }}>
-                      Meals ({entries.length})
-                    </h2>
-                    {[...entries].reverse().map((entry) => (
-                      <div key={entry.id} style={{
-                        background: COLORS.surface,
-                        boxShadow: `0 1px 3px ${COLORS.shadowLight}`,
-                        borderRadius: '8px',
-                        padding: '1rem',
-                      }}>
-                        <div style={{ fontWeight: '600', color: COLORS.textPrimary, marginBottom: '0.5rem' }}>
-                          {entry.food}
-                        </div>
-                        <div style={{ fontSize: '0.85rem', color: COLORS.textSecondary, marginBottom: '0.3rem' }}>
-                          {entry.calories} cal | P: {entry.protein}g | C: {entry.carbs}g | F: {entry.fat}g
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: COLORS.textTertiary }}>
-                          {entry.timestamp}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{
-                    textAlign: 'center',
-                    padding: '3rem 1rem',
-                    color: COLORS.textTertiary,
-                  }}>
-                    <p style={{ fontSize: '1rem' }}>No meals logged yet</p>
-                    <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>Log your first meal to get started!</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab !== 'today' && (
-              <div style={{
-                padding: '2rem',
-                textAlign: 'center',
-                color: COLORS.textTertiary,
-              }}>
-                <p>More features coming soon!</p>
-              </div>
-            )}
+        <div style={{ minHeight: '100vh', background: COLORS.background }}>
+          <div style={{ padding: '1rem', borderBottom: `1px solid ${COLORS.borderLight}`, background: COLORS.surface }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: COLORS.textPrimary }}>📱 Body Tracker</h1>
+            <p style={{ fontSize: '0.8rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>✅ Connected (UID: {user?.uid?.slice(0, 8)}...)</p>
           </div>
 
-          {/* Tab Navigation */}
-          <div style={{
-            position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            background: COLORS.surface,
-            borderTop: `1px solid ${COLORS.borderLight}`,
-            display: 'flex',
-            gap: '0.5rem',
-            padding: '0.5rem',
-            boxShadow: '0 -1px 3px rgba(0,0,0,0.04)',
-          }}>
-            {['today', 'history', 'body', 'support'].map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
+          <div style={{ padding: '1rem', paddingBottom: '100px' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+              <input
+                type="text"
+                value={foodInput}
+                onChange={(e) => setFoodInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && logMeal()}
+                placeholder="Log a meal..."
                 style={{
                   flex: 1,
-                  padding: '0.6rem 0.4rem',
-                  background: activeTab === tab ? COLORS.accentBlue : 'transparent',
-                  color: activeTab === tab ? 'white' : COLORS.textSecondary,
+                  padding: '0.7rem',
+                  border: `1px solid ${COLORS.borderLight}`,
+                  borderRadius: '8px',
+                  fontSize: '0.9rem',
+                }}
+              />
+              <button
+                onClick={logMeal}
+                disabled={loading || !foodInput.trim()}
+                style={{
+                  padding: '0.7rem 1.2rem',
+                  background: COLORS.accentBlue,
+                  color: 'white',
                   border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: activeTab === tab ? '600' : '500',
-                  fontSize: '0.7rem',
-                  transition: 'all 0.2s',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.6 : 1,
                 }}
               >
-                {tab === 'today' && '📊'}
-                {tab === 'history' && '📋'}
-                {tab === 'body' && '📈'}
-                {tab === 'support' && '💬'}
-                <div style={{ marginTop: '0.2rem' }}>{tab.slice(0, 4)}</div>
+                {loading ? '...' : 'Log'}
               </button>
-            ))}
+            </div>
+
+            {entries.length > 0 ? (
+              <div>
+                <h2 style={{ fontSize: '0.9rem', fontWeight: '600', color: COLORS.textSecondary, marginBottom: '1rem' }}>Meals ({entries.length})</h2>
+                {[...entries].reverse().map((e) => (
+                  <div key={e.id} style={{
+                    background: COLORS.surface,
+                    boxShadow: `0 1px 3px ${COLORS.shadowLight}`,
+                    borderRadius: '8px',
+                    padding: '1rem',
+                    marginBottom: '0.8rem',
+                  }}>
+                    <div style={{ fontWeight: '600', color: COLORS.textPrimary }}>{e.food}</div>
+                    <div style={{ fontSize: '0.85rem', color: COLORS.textSecondary, marginTop: '0.3rem' }}>
+                      {e.calories}cal • P:{e.protein}g C:{e.carbs}g F:{e.fat}g
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: COLORS.textTertiary, marginTop: '0.3rem' }}>{e.time}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: COLORS.textTertiary }}>
+                <p>No meals logged yet</p>
+              </div>
+            )}
           </div>
         </div>
       );
     };
 
-    // ============================================
-    // ROOT COMPONENT
-    // ============================================
+    // Root
     const Root = () => {
       const [user, setUser] = useState(null);
       const [firebaseReady, setFirebaseReady] = useState(false);
+      const [timedOut, setTimedOut] = useState(false);
 
       useEffect(() => {
-        // Wait for Firebase SDK to load
-        const checkFirebase = setInterval(() => {
-          if (window.firebase && window.firebase.initializeApp) {
+        const timeout = setTimeout(() => {
+          if (!window.firebase) {
+            setTimedOut(true);
+          }
+        }, 8000);
+
+        const interval = setInterval(() => {
+          if (window.firebase?.initializeApp) {
             setFirebaseReady(true);
-            clearInterval(checkFirebase);
+            clearInterval(interval);
+            clearTimeout(timeout);
           }
         }, 100);
 
-        return () => clearInterval(checkFirebase);
+        return () => {
+          clearInterval(interval);
+          clearTimeout(timeout);
+        };
       }, []);
 
-      if (!firebaseReady) {
+      if (timedOut) {
         return (
           <div style={{
             minHeight: '100vh',
@@ -552,18 +363,41 @@
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            padding: '1rem',
           }}>
             <div style={{
+              background: COLORS.surface,
+              borderRadius: '16px',
+              padding: '2rem',
+              maxWidth: '400px',
               textAlign: 'center',
-              color: COLORS.textSecondary,
+              boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
             }}>
-              <p>Loading...</p>
+              <h2 style={{ color: COLORS.accentRed, marginBottom: '1rem' }}>⚠️ Connection Issue</h2>
+              <p style={{ color: COLORS.textSecondary, marginBottom: '1rem' }}>
+                Firebase SDK failed to load. This might be a network issue.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  background: COLORS.accentBlue,
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                Refresh Page
+              </button>
             </div>
           </div>
         );
       }
 
-      return user ? <AppContent user={user} /> : <LoginScreen onLoggedIn={setUser} />;
+      return user ? <App user={user} /> : <LoginScreen onLoggedIn={setUser} firebaseReady={firebaseReady} />;
     };
 
     ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
